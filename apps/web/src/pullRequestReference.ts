@@ -1,5 +1,8 @@
-const GITHUB_PULL_REQUEST_URL_PATTERN =
-  /^https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/pull\/(\d+)(?:[/?#].*)?$/i;
+const PULL_REQUEST_URL_PATTERNS = [
+  /^https?:\/\/[^/\s]+\/[^/\s]+\/[^/\s]+\/pull\/(\d+)(?:[/?#].*)?$/i,
+  /^https?:\/\/[^/\s]+\/.+?\/(?:-\/)?merge[_-]requests\/(\d+)(?:[/?#].*)?$/i,
+  /^https?:\/\/[^/\s]+\/[^/\s]+\/[^/\s]+\/pulls\/(\d+)(?:[/?#].*)?$/i,
+] as const;
 const PULL_REQUEST_NUMBER_PATTERN = /^#?(\d+)$/;
 
 export function parsePullRequestReference(input: string): string | null {
@@ -8,9 +11,11 @@ export function parsePullRequestReference(input: string): string | null {
     return null;
   }
 
-  const urlMatch = GITHUB_PULL_REQUEST_URL_PATTERN.exec(trimmed);
-  if (urlMatch?.[1]) {
-    return trimmed;
+  for (const pattern of PULL_REQUEST_URL_PATTERNS) {
+    const urlMatch = pattern.exec(trimmed);
+    if (urlMatch?.[1]) {
+      return trimmed;
+    }
   }
 
   const numberMatch = PULL_REQUEST_NUMBER_PATTERN.exec(trimmed);
