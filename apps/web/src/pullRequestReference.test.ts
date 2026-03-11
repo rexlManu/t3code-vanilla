@@ -9,6 +9,18 @@ describe("parsePullRequestReference", () => {
     );
   });
 
+  it("accepts GitLab merge request URLs", () => {
+    expect(
+      parsePullRequestReference("https://gitlab.example.com/group/subgroup/t3code/-/merge_requests/42"),
+    ).toBe("https://gitlab.example.com/group/subgroup/t3code/-/merge_requests/42");
+  });
+
+  it("accepts Gitea pull request URLs", () => {
+    expect(parsePullRequestReference("https://gitea.example.com/pingdotgg/t3code/pulls/42")).toBe(
+      "https://gitea.example.com/pingdotgg/t3code/pulls/42",
+    );
+  });
+
   it("accepts raw numbers", () => {
     expect(parsePullRequestReference("42")).toBe("42");
   });
