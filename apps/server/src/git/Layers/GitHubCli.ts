@@ -86,6 +86,7 @@ const RawGitHubPullRequestSchema = Schema.Struct({
   headRefName: TrimmedNonEmptyString,
   state: Schema.optional(Schema.NullOr(Schema.String)),
   mergedAt: Schema.optional(Schema.NullOr(Schema.String)),
+  updatedAt: Schema.optional(Schema.NullOr(Schema.String)),
   isCrossRepository: Schema.optional(Schema.Boolean),
   headRepository: Schema.optional(
     Schema.NullOr(
@@ -125,6 +126,9 @@ function normalizePullRequestSummary(
     baseRefName: raw.baseRefName,
     headRefName: raw.headRefName,
     state: normalizePullRequestState(raw),
+    ...(typeof raw.updatedAt === "string" || raw.updatedAt === null
+      ? { updatedAt: raw.updatedAt ?? null }
+      : {}),
     ...(typeof raw.isCrossRepository === "boolean"
       ? { isCrossRepository: raw.isCrossRepository }
       : {}),
@@ -172,37 +176,46 @@ const makeGitHubCli = Effect.sync(() => {
       catch: (error) => normalizeGitHubCliError("execute", error),
     });
 
+  const listPullRequests: GitHubCliShape["listPullRequests"] = (input) =>
+    execute({
+      cwd: input.cwd,
+      args: [
+        "pr",
+        "list",
+        "--head",
+        input.headSelector,
+        "--state",
+        input.state,
+        "--limit",
+        String(input.limit ?? 1),
+        "--json",
+        "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
+      ],
+    }).pipe(
+      Effect.map((result) => result.stdout.trim()),
+      Effect.flatMap((raw) =>
+        raw.length === 0
+          ? Effect.succeed([])
+          : decodeGitHubJson(
+              raw,
+              Schema.Array(RawGitHubPullRequestSchema),
+              "listOpenPullRequests",
+              "GitHub CLI returned invalid PR list JSON.",
+            ),
+      ),
+      Effect.map((pullRequests) => pullRequests.map(normalizePullRequestSummary)),
+    );
+
   const service = {
     execute,
+    listPullRequests,
     listOpenPullRequests: (input) =>
-      execute({
+      listPullRequests({
         cwd: input.cwd,
-        args: [
-          "pr",
-          "list",
-          "--head",
-          input.headSelector,
-          "--state",
-          "open",
-          "--limit",
-          String(input.limit ?? 1),
-          "--json",
-          "number,title,url,baseRefName,headRefName",
-        ],
-      }).pipe(
-        Effect.map((result) => result.stdout.trim()),
-        Effect.flatMap((raw) =>
-          raw.length === 0
-            ? Effect.succeed([])
-            : decodeGitHubJson(
-                raw,
-                Schema.Array(RawGitHubPullRequestSchema),
-                "listOpenPullRequests",
-                "GitHub CLI returned invalid PR list JSON.",
-              ),
-        ),
-        Effect.map((pullRequests) => pullRequests.map(normalizePullRequestSummary)),
-      ),
+        headSelector: input.headSelector,
+        state: "open",
+        ...(input.limit !== undefined ? { limit: input.limit } : {}),
+      }),
     getPullRequest: (input) =>
       execute({
         cwd: input.cwd,
