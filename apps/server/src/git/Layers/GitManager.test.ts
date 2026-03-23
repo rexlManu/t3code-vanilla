@@ -7,13 +7,13 @@ import { it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, PlatformError, Scope } from "effect";
 import { expect } from "vitest";
 
-import { GitCommandError, GitHubCliError, TextGenerationError } from "../Errors.ts";
+import { GitCommandError, GitHostingCliError, TextGenerationError } from "../Errors.ts";
 import { type GitManagerShape } from "../Services/GitManager.ts";
 import {
-  type GitHubCliShape,
-  type GitHubPullRequestSummary,
-  GitHubCli,
-} from "../Services/GitHubCli.ts";
+  type GitHostingCliShape,
+  type GitHostingPullRequestSummary,
+  GitHostingCli,
+} from "../Services/GitHostingCli.ts";
 import { type TextGenerationShape, TextGeneration } from "../Services/TextGeneration.ts";
 import { GitServiceLive } from "./GitService.ts";
 import { GitService } from "../Services/GitService.ts";
@@ -38,7 +38,7 @@ interface FakeGhScenario {
     headRepositoryOwnerLogin?: string | null;
   };
   repositoryCloneUrls?: Record<string, { url: string; sshUrl: string }>;
-  failWith?: GitHubCliError;
+  failWith?: GitHostingCliError;
 }
 
 interface FakeGitTextGeneration {
@@ -68,6 +68,26 @@ interface FakeGitTextGeneration {
 
 type FakePullRequest = NonNullable<FakeGhScenario["pullRequest"]>;
 
+function normalizeFakePullRequestSummary(
+  pullRequest: GitHostingPullRequestSummary,
+): GitHostingPullRequestSummary {
+  const normalizedState =
+    typeof pullRequest.state === "string" ? pullRequest.state.toLowerCase() : null;
+  return {
+    ...pullRequest,
+    ...(normalizedState
+      ? {
+          state:
+            normalizedState === "merged"
+              ? "merged"
+              : normalizedState === "closed"
+                ? "closed"
+                : "open",
+        }
+      : {}),
+  };
+}
+
 function runGitSyncForFakeGh(cwd: string, args: readonly string[]): void {
   const result = spawnSync("git", args, {
     cwd,
@@ -76,18 +96,18 @@ function runGitSyncForFakeGh(cwd: string, args: readonly string[]): void {
   if (result.status === 0) {
     return;
   }
-  throw new GitHubCliError({
+  throw new GitHostingCliError({
     operation: "execute",
     detail: `Failed to simulate gh checkout with git ${args.join(" ")}: ${result.stderr?.trim() || "unknown error"}`,
   });
 }
 
-function isGitHubCliError(error: unknown): error is GitHubCliError {
+function isGitHostingCliError(error: unknown): error is GitHostingCliError {
   return (
     typeof error === "object" &&
     error !== null &&
     "_tag" in error &&
-    (error as { _tag?: unknown })._tag === "GitHubCliError"
+    (error as { _tag?: unknown })._tag === "GitHostingCliError"
   );
 }
 
@@ -207,14 +227,14 @@ function createTextGeneration(overrides: Partial<FakeGitTextGeneration> = {}): T
   };
 }
 
-function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
-  service: GitHubCliShape;
+function createGitHostingCliWithFakeGh(scenario: FakeGhScenario = {}): {
+  service: GitHostingCliShape;
   ghCalls: string[];
 } {
   const prListQueue = [...(scenario.prListSequence ?? [])];
   const ghCalls: string[] = [];
 
-  const execute: GitHubCliShape["execute"] = (input) => {
+  const execute = (input: { cwd: string; args: ReadonlyArray<string> }) => {
     const args = [...input.args];
     ghCalls.push(args.join(" "));
 
@@ -316,9 +336,9 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
           };
         },
         catch: (error) =>
-          isGitHubCliError(error)
+          isGitHostingCliError(error)
             ? error
-            : new GitHubCliError({
+            : new GitHostingCliError({
                 operation: "execute",
                 detail:
                   error instanceof Error
@@ -334,7 +354,7 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
         const cloneUrls = scenario.repositoryCloneUrls?.[repository];
         if (!cloneUrls) {
           return Effect.fail(
-            new GitHubCliError({
+            new GitHostingCliError({
               operation: "execute",
               detail: `Unexpected repository lookup: ${repository}`,
             }),
@@ -363,7 +383,7 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
     }
 
     return Effect.fail(
-      new GitHubCliError({
+      new GitHostingCliError({
         operation: "execute",
         detail: `Unexpected gh command: ${args.join(" ")}`,
       }),
@@ -372,8 +392,7 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
 
   return {
     service: {
-      execute,
-      listOpenPullRequests: (input) =>
+      listPullRequests: (input) =>
         execute({
           cwd: input.cwd,
           args: [
@@ -382,17 +401,25 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
             "--head",
             input.headSelector,
             "--state",
-            "open",
+            input.state,
             "--limit",
             String(input.limit ?? 1),
             "--json",
-            "number,title,url,baseRefName,headRefName",
+            "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
           ],
         }).pipe(
           Effect.map(
-            (result) => JSON.parse(result.stdout) as ReadonlyArray<GitHubPullRequestSummary>,
+            (result) =>
+              (JSON.parse(result.stdout) as ReadonlyArray<GitHostingPullRequestSummary>).map(
+                normalizeFakePullRequestSummary,
+              ),
           ),
         ),
+      getRepositoryCloneUrls: (input) =>
+        execute({
+          cwd: input.cwd,
+          args: ["repo", "view", input.repository, "--json", "nameWithOwner,url,sshUrl"],
+        }).pipe(Effect.map((result) => JSON.parse(result.stdout))),
       createPullRequest: (input) =>
         execute({
           cwd: input.cwd,
@@ -402,7 +429,9 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
             "--base",
             input.baseBranch,
             "--head",
-            input.headSelector,
+            input.headRepositoryOwnerLogin
+              ? `${input.headRepositoryOwnerLogin}:${input.headBranch}`
+              : input.headBranch,
             "--title",
             input.title,
             "--body-file",
@@ -429,12 +458,13 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
             "--json",
             "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
           ],
-        }).pipe(Effect.map((result) => JSON.parse(result.stdout) as GitHubPullRequestSummary)),
-      getRepositoryCloneUrls: (input) =>
-        execute({
-          cwd: input.cwd,
-          args: ["repo", "view", input.repository, "--json", "nameWithOwner,url,sshUrl"],
-        }).pipe(Effect.map((result) => JSON.parse(result.stdout))),
+        }).pipe(
+          Effect.map((result) =>
+            normalizeFakePullRequestSummary(
+              JSON.parse(result.stdout) as GitHostingPullRequestSummary,
+            ),
+          ),
+        ),
       checkoutPullRequest: (input) =>
         execute({
           cwd: input.cwd,
@@ -473,7 +503,7 @@ function makeManager(input?: {
   ghScenario?: FakeGhScenario;
   textGeneration?: Partial<FakeGitTextGeneration>;
 }) {
-  const { service: gitHubCli, ghCalls } = createGitHubCliWithFakeGh(input?.ghScenario);
+  const { service: gitHostingCli, ghCalls } = createGitHostingCliWithFakeGh(input?.ghScenario);
   const textGeneration = createTextGeneration(input?.textGeneration);
   const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
     prefix: "t3-git-manager-test-",
@@ -486,7 +516,7 @@ function makeManager(input?: {
   );
 
   const managerLayer = Layer.mergeAll(
-    Layer.succeed(GitHubCli, gitHubCli),
+    Layer.succeed(GitHostingCli, gitHostingCli),
     Layer.succeed(TextGeneration, textGeneration),
     gitCoreLayer,
   ).pipe(Layer.provideMerge(NodeServices.layer));
@@ -590,7 +620,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           state: "open",
         });
         expect(ghCalls).toContain(
-          "pr list --head jasonLaster:statemachine --state all --limit 20 --json number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt",
+          "pr list --head jasonLaster:statemachine --state all --limit 20 --json number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
         );
       }),
     12_000,
@@ -692,7 +722,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
       const { manager } = yield* makeManager({
         ghScenario: {
-          failWith: new GitHubCliError({
+          failWith: new GitHostingCliError({
             operation: "execute",
             detail: "GitHub CLI (`gh`) is required but not available on PATH.",
           }),
@@ -1360,7 +1390,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
       const { manager } = yield* makeManager({
         ghScenario: {
-          failWith: new GitHubCliError({
+          failWith: new GitHostingCliError({
             operation: "execute",
             detail: "GitHub CLI (`gh`) is required but not available on PATH.",
           }),
@@ -1389,7 +1419,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
       const { manager } = yield* makeManager({
         ghScenario: {
-          failWith: new GitHubCliError({
+          failWith: new GitHostingCliError({
             operation: "execute",
             detail: "GitHub CLI is not authenticated. Run `gh auth login` and retry.",
           }),
