@@ -7,8 +7,13 @@ import type {
 } from "@t3tools/contracts";
 import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
-import { ChevronDownIcon, CloudUploadIcon, GitCommitIcon, InfoIcon } from "lucide-react";
-import { GitHubIcon } from "./Icons";
+import {
+  ChevronDownIcon,
+  CloudUploadIcon,
+  GitCommitIcon,
+  GitPullRequestIcon,
+  InfoIcon,
+} from "lucide-react";
 import {
   buildGitActionProgressStages,
   buildMenuItems,
@@ -192,19 +197,19 @@ const COMMIT_DIALOG_DESCRIPTION =
 function GitActionItemIcon({ icon }: { icon: GitActionIconName }) {
   if (icon === "commit") return <GitCommitIcon />;
   if (icon === "push") return <CloudUploadIcon />;
-  return <GitHubIcon />;
+  return <GitPullRequestIcon />;
 }
 
 function GitQuickActionIcon({ quickAction }: { quickAction: GitQuickAction }) {
   const iconClassName = "size-3.5";
-  if (quickAction.kind === "open_pr") return <GitHubIcon className={iconClassName} />;
+  if (quickAction.kind === "open_pr") return <GitPullRequestIcon className={iconClassName} />;
   if (quickAction.kind === "run_pull") return <InfoIcon className={iconClassName} />;
   if (quickAction.kind === "run_action") {
     if (quickAction.action === "commit") return <GitCommitIcon className={iconClassName} />;
     if (quickAction.action === "push" || quickAction.action === "commit_push") {
       return <CloudUploadIcon className={iconClassName} />;
     }
-    return <GitHubIcon className={iconClassName} />;
+    return <GitPullRequestIcon className={iconClassName} />;
   }
   if (quickAction.label === "Commit") return <GitCommitIcon className={iconClassName} />;
   return <InfoIcon className={iconClassName} />;

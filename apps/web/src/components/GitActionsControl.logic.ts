@@ -48,11 +48,7 @@ export function buildGitActionProgressStages(input: {
 }): string[] {
   const branchStages = input.featureBranch ? ["Preparing feature branch..."] : [];
   const pushStage = input.pushTarget ? `Pushing to ${input.pushTarget}...` : "Pushing...";
-  const prStages = [
-    "Preparing PR...",
-    "Generating PR content...",
-    "Creating GitHub pull request...",
-  ];
+  const prStages = ["Preparing PR...", "Generating PR content...", "Creating pull request..."];
 
   if (input.action === "push") {
     return [pushStage];
@@ -101,9 +97,9 @@ export function buildMenuItems(
     hasBranch &&
     !hasChanges &&
     !hasOpenPr &&
-    gitStatus.aheadCount > 0 &&
     !isBehind &&
-    (gitStatus.hasUpstream || canPushWithoutUpstream);
+    (gitStatus.hasUpstream || canPushWithoutUpstream) &&
+    (gitStatus.hasUpstream || gitStatus.aheadCount > 0);
   const canOpenPr = !isBusy && hasOpenPr;
 
   return [
@@ -267,6 +263,15 @@ export function resolveQuickAction(
 
   if (hasOpenPr && gitStatus.hasUpstream) {
     return { label: "View PR", disabled: false, kind: "open_pr" };
+  }
+
+  if (gitStatus.hasUpstream && !isDefaultBranch) {
+    return {
+      label: "Create PR",
+      disabled: false,
+      kind: "run_action",
+      action: "create_pr",
+    };
   }
 
   return {

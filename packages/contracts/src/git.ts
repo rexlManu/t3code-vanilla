@@ -44,7 +44,7 @@ const GitStatusPrState = Schema.Literals(["open", "closed", "merged"]);
 const GitPullRequestReference = TrimmedNonEmptyStringSchema;
 const GitPullRequestState = Schema.Literals(["open", "closed", "merged"]);
 const GitPreparePullRequestThreadMode = Schema.Literals(["local", "worktree"]);
-export const GitHostingProviderKind = Schema.Literals(["github", "gitlab", "unknown"]);
+export const GitHostingProviderKind = Schema.Literals(["github", "gitea", "gitlab", "unknown"]);
 export type GitHostingProviderKind = typeof GitHostingProviderKind.Type;
 export const GitHostingProvider = Schema.Struct({
   kind: GitHostingProviderKind,
@@ -343,6 +343,19 @@ export class GitHubCliError extends Schema.TaggedErrorClass<GitHubCliError>()("G
   }
 }
 
+export class GitHostingCliError extends Schema.TaggedErrorClass<GitHostingCliError>()(
+  "GitHostingCliError",
+  {
+    operation: Schema.String,
+    detail: Schema.String,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {
+  override get message(): string {
+    return `Git hosting CLI failed in ${this.operation}: ${this.detail}`;
+  }
+}
+
 export class TextGenerationError extends Schema.TaggedErrorClass<TextGenerationError>()(
   "TextGenerationError",
   {
@@ -369,7 +382,7 @@ export class GitManagerError extends Schema.TaggedErrorClass<GitManagerError>()(
 export const GitManagerServiceError = Schema.Union([
   GitManagerError,
   GitCommandError,
-  GitHubCliError,
+  GitHostingCliError,
   TextGenerationError,
 ]);
 export type GitManagerServiceError = typeof GitManagerServiceError.Type;

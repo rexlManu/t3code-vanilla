@@ -128,20 +128,30 @@ export function normalizeGitRemoteUrl(value: string): string {
 }
 
 /**
- * Best-effort parse of a GitHub `owner/repo` identifier from common remote URL shapes.
+ * Best-effort parse of a repository path such as `owner/repo` from common remote URL shapes.
+ * Preserves nested group paths for providers like GitLab.
  */
-export function parseGitHubRepositoryNameWithOwnerFromRemoteUrl(url: string | null): string | null {
+export function parseRepositoryPathFromRemoteUrl(url: string | null): string | null {
   const trimmed = url?.trim() ?? "";
   if (trimmed.length === 0) {
     return null;
   }
 
-  const match =
-    /^(?:git@github\.com:|ssh:\/\/git@github\.com\/|https:\/\/github\.com\/|git:\/\/github\.com\/)([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/i.exec(
-      trimmed,
-    );
-  const repositoryNameWithOwner = match?.[1]?.trim() ?? "";
-  return repositoryNameWithOwner.length > 0 ? repositoryNameWithOwner : null;
+  const normalized = normalizeGitRemoteUrl(trimmed);
+  const firstSlash = normalized.indexOf("/");
+  if (firstSlash <= 0 || firstSlash === normalized.length - 1) {
+    return null;
+  }
+
+  const repositoryPath = normalized.slice(firstSlash + 1).trim();
+  return repositoryPath.length > 0 ? repositoryPath : null;
+}
+
+/**
+ * Backward-compatible alias retained for existing GitHub-only call sites and tests.
+ */
+export function parseGitHubRepositoryNameWithOwnerFromRemoteUrl(url: string | null): string | null {
+  return parseRepositoryPathFromRemoteUrl(url);
 }
 
 function deriveLocalBranchNameCandidatesFromRemoteRef(
@@ -225,6 +235,16 @@ function isGitLabHost(host: string): boolean {
   return host === "gitlab.com" || host.includes("gitlab");
 }
 
+function isGiteaHost(host: string): boolean {
+  return (
+    host === "gitea.com" ||
+    host === "codeberg.org" ||
+    host.includes("gitea") ||
+    host.includes("forgejo") ||
+    host.includes("codeberg")
+  );
+}
+
 export function detectGitHostingProviderFromRemoteUrl(
   remoteUrl: string,
 ): GitHostingProvider | null {
@@ -245,6 +265,21 @@ export function detectGitHostingProviderFromRemoteUrl(
     return {
       kind: "gitlab",
       name: host === "gitlab.com" ? "GitLab" : "GitLab Self-Hosted",
+      baseUrl: toBaseUrl(host),
+    };
+  }
+
+  if (isGiteaHost(host)) {
+    return {
+      kind: "gitea",
+      name:
+        host === "gitea.com"
+          ? "Gitea"
+          : host === "codeberg.org"
+            ? "Codeberg"
+            : host.includes("forgejo")
+              ? "Forgejo"
+              : "Gitea Self-Hosted",
       baseUrl: toBaseUrl(host),
     };
   }

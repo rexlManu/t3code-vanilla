@@ -253,16 +253,21 @@ describe("when: branch is clean, ahead, and has no open PR", () => {
   });
 });
 
-describe("when: branch is clean, up to date, and has no open PR", () => {
-  it("resolveQuickAction returns disabled no-action state", () => {
+describe("when: branch is clean, up to date, pushed, and has no open PR", () => {
+  it("resolveQuickAction offers create PR", () => {
     const quick = resolveQuickAction(
       status({ aheadCount: 0, behindCount: 0, hasWorkingTreeChanges: false, pr: null }),
       false,
     );
-    assert.deepInclude(quick, { kind: "show_hint", label: "Commit", disabled: true });
+    assert.deepInclude(quick, {
+      kind: "run_action",
+      action: "create_pr",
+      label: "Create PR",
+      disabled: false,
+    });
   });
 
-  it("buildMenuItems disables commit, push, and create PR", () => {
+  it("buildMenuItems enables create PR while keeping commit and push disabled", () => {
     const items = buildMenuItems(status({ aheadCount: 0, behindCount: 0, pr: null }), false);
     assert.deepEqual(items, [
       {
@@ -284,7 +289,7 @@ describe("when: branch is clean, up to date, and has no open PR", () => {
       {
         id: "pr",
         label: "Create PR",
-        disabled: true,
+        disabled: false,
         icon: "pr",
         kind: "open_dialog",
         dialogAction: "create_pr",
@@ -691,6 +696,44 @@ describe("when: branch has no upstream configured", () => {
     ]);
   });
 
+  it("buildMenuItems enables create PR for a clean tracked branch that is already pushed", () => {
+    const items = buildMenuItems(
+      status({
+        hasUpstream: true,
+        aheadCount: 0,
+        behindCount: 0,
+        pr: null,
+      }),
+      false,
+    );
+    assert.deepEqual(items, [
+      {
+        id: "commit",
+        label: "Commit",
+        disabled: true,
+        icon: "commit",
+        kind: "open_dialog",
+        dialogAction: "commit",
+      },
+      {
+        id: "push",
+        label: "Push",
+        disabled: true,
+        icon: "push",
+        kind: "open_dialog",
+        dialogAction: "push",
+      },
+      {
+        id: "pr",
+        label: "Create PR",
+        disabled: false,
+        icon: "pr",
+        kind: "open_dialog",
+        dialogAction: "create_pr",
+      },
+    ]);
+  });
+
   it("buildMenuItems disables push and create PR when no origin remote exists", () => {
     const items = buildMenuItems(
       status({ hasUpstream: false, pr: null, aheadCount: 2 }),
@@ -759,6 +802,26 @@ describe("when: branch has no upstream configured", () => {
       kind: "run_action",
       action: "commit_push",
       label: "Push",
+      disabled: false,
+    });
+  });
+
+  it("resolveQuickAction enables create PR for a tracked branch that is already pushed", () => {
+    const quick = resolveQuickAction(
+      status({
+        branch: "feature/already-pushed",
+        hasUpstream: true,
+        aheadCount: 0,
+        behindCount: 0,
+        pr: null,
+      }),
+      false,
+      false,
+    );
+    assert.deepInclude(quick, {
+      kind: "run_action",
+      action: "create_pr",
+      label: "Create PR",
       disabled: false,
     });
   });
@@ -884,7 +947,7 @@ describe("buildGitActionProgressStages", () => {
       "Pushing to origin/feature/test...",
       "Preparing PR...",
       "Generating PR content...",
-      "Creating GitHub pull request...",
+      "Creating pull request...",
     ]);
   });
 
@@ -898,7 +961,7 @@ describe("buildGitActionProgressStages", () => {
     assert.deepEqual(stages, [
       "Preparing PR...",
       "Generating PR content...",
-      "Creating GitHub pull request...",
+      "Creating pull request...",
     ]);
   });
 
@@ -928,7 +991,7 @@ describe("buildGitActionProgressStages", () => {
       "Pushing to origin/feature/test...",
       "Preparing PR...",
       "Generating PR content...",
-      "Creating GitHub pull request...",
+      "Creating pull request...",
     ]);
   });
 });

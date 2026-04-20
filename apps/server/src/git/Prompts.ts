@@ -81,7 +81,7 @@ export interface PrContentPromptInput {
 
 export function buildPrContentPrompt(input: PrContentPromptInput) {
   const prompt = [
-    "You write GitHub pull request content.",
+    "You write pull request content for git hosting providers.",
     "Return a JSON object with keys: title, body.",
     "Rules:",
     "- title should be concise and specific",

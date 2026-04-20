@@ -9,6 +9,12 @@ describe("parsePullRequestReference", () => {
     );
   });
 
+  it("accepts Gitea pull request URLs", () => {
+    expect(parsePullRequestReference("https://codeberg.org/pingdotgg/t3code/pulls/42")).toBe(
+      "https://codeberg.org/pingdotgg/t3code/pulls/42",
+    );
+  });
+
   it("accepts raw numbers", () => {
     expect(parsePullRequestReference("42")).toBe("42");
   });
@@ -29,6 +35,10 @@ describe("parsePullRequestReference", () => {
     expect(
       parsePullRequestReference("gh pr checkout https://github.com/pingdotgg/t3code/pull/42"),
     ).toBe("https://github.com/pingdotgg/t3code/pull/42");
+  });
+
+  it("accepts tea pr view commands", () => {
+    expect(parsePullRequestReference("tea pr view 42")).toBe("42");
   });
 
   it("rejects non-pull-request input", () => {

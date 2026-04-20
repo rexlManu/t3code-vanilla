@@ -13,13 +13,19 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 
-import { GitCommandError, GitHubCliError, TextGenerationError } from "@t3tools/contracts";
+import {
+  GitCommandError,
+  GitHostingCliError,
+  GitHubCliError,
+  TextGenerationError,
+} from "@t3tools/contracts";
 import { type GitManagerShape } from "../Services/GitManager.ts";
 import {
   type GitHubCliShape,
   type GitHubPullRequestSummary,
   GitHubCli,
 } from "../Services/GitHubCli.ts";
+import { type TeaCliShape, TeaCli } from "../Services/TeaCli.ts";
 import { type TextGenerationShape, TextGeneration } from "../Services/TextGeneration.ts";
 import { GitCoreLive } from "./GitCore.ts";
 import { GitCore } from "../Services/GitCore.ts";
@@ -236,6 +242,7 @@ function initRepo(
     yield* runGit(cwd, ["init", "--initial-branch=main"]);
     yield* runGit(cwd, ["config", "user.email", "test@example.com"]);
     yield* runGit(cwd, ["config", "user.name", "Test User"]);
+    yield* runGit(cwd, ["config", "commit.gpgsign", "false"]);
     yield* fs.writeFileString(path.join(cwd, "README.md"), "hello\n");
     yield* runGit(cwd, ["add", "README.md"]);
     yield* runGit(cwd, ["commit", "-m", "Initial commit"]);
@@ -594,6 +601,24 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
   };
 }
 
+function createTeaCliStub(): TeaCliShape {
+  const fail = (operation: string) =>
+    Effect.fail(
+      new GitHostingCliError({
+        operation,
+        detail: "Tea CLI should not be used in this test.",
+      }),
+    );
+
+  return {
+    execute: () => fail("execute"),
+    listPullRequests: () => fail("listPullRequests"),
+    getPullRequest: () => fail("getPullRequest"),
+    getRepositoryInfo: () => fail("getRepositoryInfo"),
+    createPullRequest: () => fail("createPullRequest"),
+  };
+}
+
 function runStackedAction(
   manager: GitManagerShape,
   input: {
@@ -628,10 +653,12 @@ function preparePullRequestThread(
 
 function makeManager(input?: {
   ghScenario?: FakeGhScenario;
+  teaCli?: TeaCliShape;
   textGeneration?: Partial<FakeGitTextGeneration>;
   setupScriptRunner?: ProjectSetupScriptRunnerShape;
 }) {
   const { service: gitHubCli, ghCalls } = createGitHubCliWithFakeGh(input?.ghScenario);
+  const teaCli = input?.teaCli ?? createTeaCliStub();
   const textGeneration = createTextGeneration(input?.textGeneration);
   const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
     prefix: "t3-git-manager-test-",
@@ -646,6 +673,7 @@ function makeManager(input?: {
 
   const managerLayer = Layer.mergeAll(
     Layer.succeed(GitHubCli, gitHubCli),
+    Layer.succeed(TeaCli, teaCli),
     Layer.succeed(TextGeneration, textGeneration),
     Layer.succeed(
       ProjectSetupScriptRunner,
@@ -747,6 +775,83 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         headBranch: "feature/status-trimmed-pr",
         state: "open",
       });
+    }),
+  );
+
+  it.effect("routes Gitea-hosted repositories through Tea for PR status lookup", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/gitea-status"]);
+      yield* runGit(repoDir, [
+        "remote",
+        "add",
+        "origin",
+        "https://codeberg.org/pingdotgg/t3code.git",
+      ]);
+
+      const teaCalls: string[] = [];
+      const { manager, ghCalls } = yield* makeManager({
+        teaCli: {
+          execute: () =>
+            Effect.fail(
+              new GitHostingCliError({
+                operation: "execute",
+                detail: "Tea execute should not be called directly in this test.",
+              }),
+            ),
+          listPullRequests: () =>
+            Effect.sync(() => {
+              teaCalls.push("listPullRequests");
+              return [
+                {
+                  number: 42,
+                  title: "Gitea PR",
+                  url: "https://codeberg.org/pingdotgg/t3code/pulls/42",
+                  baseRefName: "main",
+                  headRefName: "feature/gitea-status",
+                  state: "open" as const,
+                  updatedAt: "2026-04-14T10:00:00Z",
+                },
+              ];
+            }),
+          getPullRequest: () =>
+            Effect.fail(
+              new GitHostingCliError({
+                operation: "getPullRequest",
+                detail: "Unexpected call.",
+              }),
+            ),
+          getRepositoryInfo: () =>
+            Effect.fail(
+              new GitHostingCliError({
+                operation: "getRepositoryInfo",
+                detail: "Unexpected call.",
+              }),
+            ),
+          createPullRequest: () =>
+            Effect.fail(
+              new GitHostingCliError({
+                operation: "createPullRequest",
+                detail: "Unexpected call.",
+              }),
+            ),
+        },
+      });
+
+      const status = yield* manager.status({ cwd: repoDir });
+
+      expect(status.hostingProvider?.kind).toBe("gitea");
+      expect(status.pr).toEqual({
+        number: 42,
+        title: "Gitea PR",
+        url: "https://codeberg.org/pingdotgg/t3code/pulls/42",
+        baseBranch: "main",
+        headBranch: "feature/gitea-status",
+        state: "open",
+      });
+      expect(teaCalls).toEqual(["listPullRequests"]);
+      expect(ghCalls).toEqual([]);
     }),
   );
 
@@ -1036,7 +1141,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           state: "open",
         });
         expect(ghCalls).toContain(
-          "pr list --head jasonLaster:statemachine --state all --limit 20 --json number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
+          "pr list --head jasonlaster:statemachine --state all --limit 20 --json number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
         );
       }),
     20_000,
@@ -2303,10 +2408,16 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
       yield* initRepo(repoDir);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
       yield* runGit(repoDir, ["checkout", "-b", "feature/pr-local"]);
       fs.writeFileSync(path.join(repoDir, "local.txt"), "local\n");
       yield* runGit(repoDir, ["add", "local.txt"]);
       yield* runGit(repoDir, ["commit", "-m", "Local PR branch"]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "feature/pr-local"]);
+      yield* runGit(repoDir, ["push", "origin", "HEAD:refs/pull/64/head"]);
+      yield* runGit(repoDir, ["checkout", "main"]);
 
       const { manager, ghCalls } = yield* makeManager({
         ghScenario: {
@@ -2331,7 +2442,13 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(result.worktreePath).toBeNull();
       const branch = (yield* runGit(repoDir, ["branch", "--show-current"])).stdout.trim();
       expect(branch).toBe("feature/pr-local");
-      expect(ghCalls).toContain("pr checkout 64 --force");
+      expect(
+        ghCalls.some((call) =>
+          call.startsWith(
+            "pr view 64 --json number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
+          ),
+        ),
+      ).toBe(true);
     }),
   );
 
@@ -2541,7 +2658,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       });
 
       expect(result.worktreePath).toBeNull();
-      expect(result.branch).toBe("feature/pr-local-fork");
+      expect(result.branch).toBe("t3code/pr-82/feature/pr-local-fork");
       expect(
         (yield* runGit(repoDir, ["rev-parse", "--abbrev-ref", "@{upstream}"])).stdout.trim(),
       ).toBe("fork-seed/feature/pr-local-fork");
@@ -2597,7 +2714,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         mode: "local",
       });
 
-      expect(result.branch).toBe("fix/git-action-default-without-origin");
+      expect(result.branch).toBe("t3code/pr-642/fix/git-action-default-without-origin");
       expect(result.worktreePath).toBeNull();
       expect(
         (yield* runGit(repoDir, ["rev-parse", "--abbrev-ref", "@{upstream}"])).stdout.trim(),
@@ -3089,7 +3206,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         expect.objectContaining({
           kind: "phase_started",
           phase: "pr",
-          label: "Creating GitHub pull request...",
+          label: "Creating pull request...",
         }),
       ]);
     }),
