@@ -46,6 +46,7 @@ We are very very early in this project. Expect bugs.
 We are not accepting contributions yet.
 
 Observability guide: [docs/observability.md](./docs/observability.md)
+Fork maintenance guide: [docs/fork-maintenance.md](./docs/fork-maintenance.md)
 
 ## If you REALLY want to contribute still.... read this first
 
