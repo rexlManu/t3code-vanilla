@@ -6,6 +6,7 @@ import {
   buildTemporaryWorktreeBranchName,
   isTemporaryWorktreeBranch,
   normalizeGitRemoteUrl,
+  parseRepositoryPathFromRemoteUrl,
   parseGitHubRepositoryNameWithOwnerFromRemoteUrl,
   WORKTREE_BRANCH_PREFIX,
 } from "./git.ts";
@@ -46,10 +47,21 @@ describe("parseGitHubRepositoryNameWithOwnerFromRemoteUrl", () => {
   it("extracts the owner and repository from common GitHub remote shapes", () => {
     expect(
       parseGitHubRepositoryNameWithOwnerFromRemoteUrl("git@github.com:T3Tools/T3Code.git"),
-    ).toBe("T3Tools/T3Code");
+    ).toBe("t3tools/t3code");
     expect(
       parseGitHubRepositoryNameWithOwnerFromRemoteUrl("https://github.com/T3Tools/T3Code.git"),
-    ).toBe("T3Tools/T3Code");
+    ).toBe("t3tools/t3code");
+  });
+});
+
+describe("parseRepositoryPathFromRemoteUrl", () => {
+  it("preserves nested repository paths for grouped providers", () => {
+    expect(parseRepositoryPathFromRemoteUrl("git@gitlab.com:T3Tools/platform/T3Code.git")).toBe(
+      "t3tools/platform/t3code",
+    );
+    expect(parseRepositoryPathFromRemoteUrl("https://codeberg.org/acme/project.git")).toBe(
+      "acme/project",
+    );
   });
 });
 

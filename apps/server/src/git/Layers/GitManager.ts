@@ -26,12 +26,13 @@ import {
 import {
   detectGitHostingProviderFromRemoteUrl,
   mergeGitStatusParts,
+  parseRepositoryPathFromRemoteUrl,
   resolveAutoFeatureBranchName,
   sanitizeBranchFragment,
   sanitizeFeatureBranchName,
 } from "@t3tools/shared/git";
 
-import { GitManagerError } from "@t3tools/contracts";
+import { GitHostingCliError, GitManagerError } from "@t3tools/contracts";
 import {
   GitManager,
   type GitActionProgressReporter,
@@ -41,6 +42,7 @@ import {
 import { GitCore } from "../Services/GitCore.ts";
 import type { GitStatusDetails } from "../Services/GitCore.ts";
 import { GitHubCli, type GitHubPullRequestSummary } from "../Services/GitHubCli.ts";
+import { TeaCli, type TeaPullRequestSummary } from "../Services/TeaCli.ts";
 import { TextGeneration } from "../Services/TextGeneration.ts";
 import { ProjectSetupScriptRunner } from "../../project/Services/ProjectSetupScriptRunner.ts";
 import { extractBranchNameFromRemoteRef } from "../remoteRefs.ts";
@@ -106,7 +108,8 @@ interface BranchHeadContext {
 
 function parseRepositoryNameFromPullRequestUrl(url: string): string | null {
   const trimmed = url.trim();
-  const match = /^https:\/\/github\.com\/[^/]+\/([^/]+)\/pull\/\d+(?:\/.*)?$/i.exec(trimmed);
+  const match =
+    /^https:\/\/[^/]+\/[^/]+\/([^/]+)\/(?:pull|pulls|merge_requests)\/\d+(?:\/.*)?$/i.exec(trimmed);
   const repositoryName = match?.[1]?.trim() ?? "";
   return repositoryName.length > 0 ? repositoryName : null;
 }
@@ -142,20 +145,6 @@ function resolvePullRequestWorktreeLocalBranchName(
   const sanitizedHeadBranch = sanitizeBranchFragment(pullRequest.headBranch).trim();
   const suffix = sanitizedHeadBranch.length > 0 ? sanitizedHeadBranch : "head";
   return `t3code/pr-${pullRequest.number}/${suffix}`;
-}
-
-function parseGitHubRepositoryNameWithOwnerFromRemoteUrl(url: string | null): string | null {
-  const trimmed = url?.trim() ?? "";
-  if (trimmed.length === 0) {
-    return null;
-  }
-
-  const match =
-    /^(?:git@github\.com:|ssh:\/\/git@github\.com\/|https:\/\/github\.com\/|git:\/\/github\.com\/)([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/i.exec(
-      trimmed,
-    );
-  const repositoryNameWithOwner = match?.[1]?.trim() ?? "";
-  return repositoryNameWithOwner.length > 0 ? repositoryNameWithOwner : null;
 }
 
 function parseRepositoryOwnerLogin(nameWithOwner: string | null): string | null {
@@ -256,7 +245,9 @@ function matchesBranchHeadContext(
   return true;
 }
 
-function toPullRequestInfo(summary: GitHubPullRequestSummary): PullRequestInfo {
+function toPullRequestInfo(
+  summary: GitHubPullRequestSummary | TeaPullRequestSummary,
+): PullRequestInfo {
   return {
     number: summary.number,
     title: summary.title,
@@ -264,7 +255,7 @@ function toPullRequestInfo(summary: GitHubPullRequestSummary): PullRequestInfo {
     baseRefName: summary.baseRefName,
     headRefName: summary.headRefName,
     state: summary.state ?? "open",
-    updatedAt: null,
+    updatedAt: "updatedAt" in summary ? summary.updatedAt : null,
     ...(summary.isCrossRepository !== undefined
       ? { isCrossRepository: summary.isCrossRepository }
       : {}),
@@ -282,6 +273,14 @@ function gitManagerError(operation: string, detail: string, cause?: unknown): Gi
     operation,
     detail,
     ...(cause !== undefined ? { cause } : {}),
+  });
+}
+
+function toGitHostingCliError(operation: string, error: { detail: string }): GitHostingCliError {
+  return new GitHostingCliError({
+    operation,
+    detail: error.detail,
+    cause: error,
   });
 }
 
@@ -439,7 +438,15 @@ function toStatusPr(pr: PullRequestInfo): {
 function normalizePullRequestReference(reference: string): string {
   const trimmed = reference.trim();
   const hashNumber = /^#(\d+)$/.exec(trimmed);
-  return hashNumber?.[1] ?? trimmed;
+  if (hashNumber?.[1]) {
+    return hashNumber[1];
+  }
+
+  const urlNumber =
+    /^https:\/\/[^/]+\/[^/\s]+\/[^/\s]+\/(?:pull|pulls|merge_requests)\/(\d+)(?:[/?#].*)?$/i.exec(
+      trimmed,
+    )?.[1];
+  return urlNumber ?? trimmed;
 }
 
 function canonicalizeExistingPath(value: string): string {
@@ -493,9 +500,12 @@ function toPullRequestHeadRemoteInfo(pr: {
 export const makeGitManager = Effect.fn("makeGitManager")(function* () {
   const gitCore = yield* GitCore;
   const gitHubCli = yield* GitHubCli;
+  const teaCli = yield* TeaCli;
   const textGeneration = yield* TextGeneration;
   const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
   const serverSettingsService = yield* ServerSettingsService;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
 
   const createProgressEmitter = (
     input: { cwd: string; action: GitStackedAction },
@@ -520,6 +530,247 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     };
   };
 
+  const readConfigValueNullable = (cwd: string, key: string) =>
+    gitCore.readConfigValue(cwd, key).pipe(Effect.catch(() => Effect.succeed(null)));
+
+  const resolvePreferredRemoteUrl = Effect.fn("resolvePreferredRemoteUrl")(function* (
+    cwd: string,
+    branch: string | null,
+  ) {
+    const preferredRemoteName =
+      branch === null
+        ? "origin"
+        : ((yield* readConfigValueNullable(cwd, `branch.${branch}.remote`)) ?? "origin");
+
+    return (
+      (yield* readConfigValueNullable(cwd, `remote.${preferredRemoteName}.url`)) ??
+      (yield* readConfigValueNullable(cwd, "remote.origin.url"))
+    );
+  });
+
+  const resolveHostingProvider = Effect.fn("resolveHostingProvider")(function* (
+    cwd: string,
+    branch: string | null,
+  ) {
+    const remoteUrl = yield* resolvePreferredRemoteUrl(cwd, branch);
+    return remoteUrl ? detectGitHostingProviderFromRemoteUrl(remoteUrl) : null;
+  });
+
+  const resolveGitHostingBackend = Effect.fn("resolveGitHostingBackend")(function* (
+    cwd: string,
+    branch: string | null,
+  ) {
+    const remoteUrl = yield* resolvePreferredRemoteUrl(cwd, branch);
+    const provider = yield* resolveHostingProvider(cwd, branch);
+    if (!remoteUrl) {
+      return "github" as const;
+    }
+    if (provider?.kind === "github") {
+      return "github" as const;
+    }
+    if (provider?.kind === "gitlab") {
+      return "gitlab" as const;
+    }
+    if (
+      remoteUrl &&
+      (remoteUrl.startsWith("/") ||
+        remoteUrl.startsWith("./") ||
+        remoteUrl.startsWith("../") ||
+        remoteUrl.startsWith("file://"))
+    ) {
+      return "github" as const;
+    }
+    return "tea" as const;
+  });
+
+  const getRepositoryCloneUrls = Effect.fn("getRepositoryCloneUrls")(function* (
+    cwd: string,
+    branch: string | null,
+    repository: string,
+  ) {
+    const backend = yield* resolveGitHostingBackend(cwd, branch);
+    if (backend === "github") {
+      return yield* gitHubCli
+        .getRepositoryCloneUrls({ cwd, repository })
+        .pipe(Effect.mapError((error) => toGitHostingCliError("getRepositoryCloneUrls", error)));
+    }
+    if (backend === "gitlab") {
+      return yield* gitManagerError(
+        "getRepositoryCloneUrls",
+        "GitLab pull request support is not implemented yet.",
+      );
+    }
+
+    const repositoryInfo = yield* teaCli.getRepositoryInfo({ cwd, repository });
+    return {
+      nameWithOwner: repositoryInfo.nameWithOwner,
+      url: repositoryInfo.url,
+      sshUrl: repositoryInfo.sshUrl,
+    };
+  });
+
+  const listPullRequests = Effect.fn("listPullRequests")(function* (
+    cwd: string,
+    branch: string | null,
+    input: {
+      state: "open" | "closed" | "merged" | "all";
+      limit?: number;
+      headSelector?: string;
+    },
+  ) {
+    const backend = yield* resolveGitHostingBackend(cwd, branch);
+
+    if (backend === "gitlab") {
+      return [] as const;
+    }
+
+    if (backend === "tea") {
+      return yield* teaCli.listPullRequests({
+        cwd,
+        state: input.state,
+        ...(input.limit !== undefined ? { limit: input.limit } : {}),
+      });
+    }
+
+    const args = [
+      "pr",
+      "list",
+      ...(input.headSelector ? (["--head", input.headSelector] as const) : []),
+      "--state",
+      input.state,
+      "--limit",
+      String(input.limit ?? 20),
+      "--json",
+      "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
+    ];
+
+    const stdout = yield* gitHubCli.execute({ cwd, args }).pipe(
+      Effect.mapError((error) => toGitHostingCliError("listPullRequests", error)),
+      Effect.map((result) => result.stdout.trim()),
+    );
+
+    if (stdout.length === 0) {
+      return [] as const;
+    }
+
+    const pullRequests = yield* Effect.sync(() => decodeGitHubPullRequestListJson(stdout)).pipe(
+      Effect.flatMap((decoded) => {
+        if (!Result.isSuccess(decoded)) {
+          return Effect.fail(
+            gitManagerError(
+              "listPullRequests",
+              `GitHub CLI returned invalid PR list JSON: ${formatGitHubJsonDecodeError(decoded.failure)}`,
+              decoded.failure,
+            ),
+          );
+        }
+
+        return Effect.succeed(decoded.success.map(toPullRequestInfo));
+      }),
+    );
+
+    return pullRequests;
+  });
+
+  const getPullRequest = Effect.fn("getPullRequest")(function* (cwd: string, reference: string) {
+    const details = yield* gitCore
+      .statusDetailsLocal(cwd)
+      .pipe(Effect.catch(() => Effect.succeed(null)));
+    const backend = yield* resolveGitHostingBackend(cwd, details?.branch ?? null);
+
+    if (backend === "github") {
+      return yield* gitHubCli
+        .getPullRequest({ cwd, reference })
+        .pipe(Effect.mapError((error) => toGitHostingCliError("getPullRequest", error)));
+    }
+    if (backend === "gitlab") {
+      return yield* gitManagerError(
+        "getPullRequest",
+        "GitLab pull request support is not implemented yet.",
+      );
+    }
+
+    return yield* teaCli.getPullRequest({ cwd, reference });
+  });
+
+  const createPullRequest = Effect.fn("createPullRequest")(function* (
+    cwd: string,
+    branch: string | null,
+    input: {
+      baseBranch: string;
+      headSelector: string;
+      title: string;
+      body: string;
+    },
+  ) {
+    const backend = yield* resolveGitHostingBackend(cwd, branch);
+
+    if (backend === "github") {
+      const tempDir = process.env.TMPDIR ?? process.env.TEMP ?? process.env.TMP ?? "/tmp";
+      const bodyFile = path.join(tempDir, `t3code-pr-body-${process.pid}-${randomUUID()}.md`);
+
+      yield* fileSystem
+        .writeFileString(bodyFile, input.body)
+        .pipe(
+          Effect.mapError((cause) =>
+            gitManagerError(
+              "createPullRequest",
+              "Failed to write pull request body temp file.",
+              cause,
+            ),
+          ),
+        );
+
+      return yield* gitHubCli
+        .createPullRequest({
+          cwd,
+          baseBranch: input.baseBranch,
+          headSelector: input.headSelector,
+          title: input.title,
+          bodyFile,
+        })
+        .pipe(
+          Effect.mapError((error) => toGitHostingCliError("createPullRequest", error)),
+          Effect.ensuring(fileSystem.remove(bodyFile).pipe(Effect.catch(() => Effect.void))),
+        );
+    }
+
+    if (backend === "gitlab") {
+      return yield* gitManagerError(
+        "createPullRequest",
+        "GitLab pull request support is not implemented yet.",
+      );
+    }
+
+    return yield* teaCli.createPullRequest({
+      cwd,
+      baseBranch: input.baseBranch,
+      headSelector: input.headSelector,
+      title: input.title,
+      body: input.body,
+    });
+  });
+
+  const getDefaultBranch = Effect.fn("getDefaultBranch")(function* (
+    cwd: string,
+    branch: string | null,
+  ) {
+    const backend = yield* resolveGitHostingBackend(cwd, branch);
+    if (backend === "github") {
+      return yield* gitHubCli.getDefaultBranch({ cwd }).pipe(
+        Effect.mapError((error) => toGitHostingCliError("getDefaultBranch", error)),
+        Effect.catch(() => Effect.succeed(null)),
+      );
+    }
+    if (backend === "gitlab") {
+      return null;
+    }
+    return yield* teaCli.getRepositoryInfo({ cwd }).pipe(
+      Effect.map((repositoryInfo) => repositoryInfo.defaultBranch),
+      Effect.catch(() => Effect.succeed(null)),
+    );
+  });
+
   const configurePullRequestHeadUpstreamBase = Effect.fn("configurePullRequestHeadUpstream")(
     function* (
       cwd: string,
@@ -531,10 +782,11 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         return;
       }
 
-      const cloneUrls = yield* gitHubCli.getRepositoryCloneUrls({
+      const cloneUrls = yield* getRepositoryCloneUrls(
         cwd,
-        repository: repositoryNameWithOwner,
-      });
+        pullRequest.headBranch,
+        repositoryNameWithOwner,
+      );
       const originRemoteUrl = yield* gitCore.readConfigValue(cwd, "remote.origin.url");
       const remoteUrl = shouldPreferSshRemote(originRemoteUrl) ? cloneUrls.sshUrl : cloneUrls.url;
       const preferredRemoteName =
@@ -586,10 +838,11 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         return;
       }
 
-      const cloneUrls = yield* gitHubCli.getRepositoryCloneUrls({
+      const cloneUrls = yield* getRepositoryCloneUrls(
         cwd,
-        repository: repositoryNameWithOwner,
-      });
+        pullRequest.headBranch,
+        repositoryNameWithOwner,
+      );
       const originRemoteUrl = yield* gitCore.readConfigValue(cwd, "remote.origin.url");
       const remoteUrl = shouldPreferSshRemote(originRemoteUrl) ? cloneUrls.sshUrl : cloneUrls.url;
       const preferredRemoteName =
@@ -631,10 +884,6 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         }),
       ),
     );
-  const fileSystem = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-
-  const tempDir = process.env.TMPDIR ?? process.env.TEMP ?? process.env.TMP ?? "/tmp";
   const normalizeStatusCacheKey = (cwd: string) => canonicalizeExistingPath(cwd);
   const nonRepositoryStatusDetails = {
     isRepo: false,
@@ -707,24 +956,6 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
   const invalidateRemoteStatusResultCache = (cwd: string) =>
     Cache.invalidate(remoteStatusResultCache, normalizeStatusCacheKey(cwd));
 
-  const readConfigValueNullable = (cwd: string, key: string) =>
-    gitCore.readConfigValue(cwd, key).pipe(Effect.catch(() => Effect.succeed(null)));
-
-  const resolveHostingProvider = Effect.fn("resolveHostingProvider")(function* (
-    cwd: string,
-    branch: string | null,
-  ) {
-    const preferredRemoteName =
-      branch === null
-        ? "origin"
-        : ((yield* readConfigValueNullable(cwd, `branch.${branch}.remote`)) ?? "origin");
-    const remoteUrl =
-      (yield* readConfigValueNullable(cwd, `remote.${preferredRemoteName}.url`)) ??
-      (yield* readConfigValueNullable(cwd, "remote.origin.url"));
-
-    return remoteUrl ? detectGitHostingProviderFromRemoteUrl(remoteUrl) : null;
-  });
-
   const resolveRemoteRepositoryContext = Effect.fn("resolveRemoteRepositoryContext")(function* (
     cwd: string,
     remoteName: string | null,
@@ -737,7 +968,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     }
 
     const remoteUrl = yield* readConfigValueNullable(cwd, `remote.${remoteName}.url`);
-    const repositoryNameWithOwner = parseGitHubRepositoryNameWithOwnerFromRemoteUrl(remoteUrl);
+    const repositoryNameWithOwner = parseRepositoryPathFromRemoteUrl(remoteUrl);
     return {
       repositoryNameWithOwner,
       ownerLogin: parseRepositoryOwnerLogin(repositoryNameWithOwner),
@@ -826,11 +1057,14 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       | "isCrossRepository"
     >,
   ) {
-    for (const headSelector of headContext.headSelectors) {
-      const pullRequests = yield* gitHubCli.listOpenPullRequests({
-        cwd,
-        headSelector,
-        limit: 1,
+    const backend = yield* resolveGitHostingBackend(cwd, headContext.headBranch);
+    const headSelectors = backend === "github" ? headContext.headSelectors : [null];
+
+    for (const headSelector of headSelectors) {
+      const pullRequests = yield* listPullRequests(cwd, headContext.headBranch, {
+        state: "open",
+        limit: backend === "github" ? 1 : 50,
+        ...(headSelector ? { headSelector } : {}),
       });
       const normalizedPullRequests = pullRequests.map(toPullRequestInfo);
 
@@ -858,53 +1092,23 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     details: { branch: string; upstreamRef: string | null },
   ) {
     const headContext = yield* resolveBranchHeadContext(cwd, details);
+    const backend = yield* resolveGitHostingBackend(cwd, details.branch);
     const parsedByNumber = new Map<number, PullRequestInfo>();
 
-    for (const headSelector of headContext.headSelectors) {
-      const stdout = yield* gitHubCli
-        .execute({
-          cwd,
-          args: [
-            "pr",
-            "list",
-            "--head",
-            headSelector,
-            "--state",
-            "all",
-            "--limit",
-            "20",
-            "--json",
-            "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
-          ],
-        })
-        .pipe(Effect.map((result) => result.stdout));
-
-      const raw = stdout.trim();
-      if (raw.length === 0) {
-        continue;
-      }
-
-      const pullRequests = yield* Effect.sync(() => decodeGitHubPullRequestListJson(raw)).pipe(
-        Effect.flatMap((decoded) => {
-          if (!Result.isSuccess(decoded)) {
-            return Effect.fail(
-              gitManagerError(
-                "findLatestPr",
-                `GitHub CLI returned invalid PR list JSON: ${formatGitHubJsonDecodeError(decoded.failure)}`,
-                decoded.failure,
-              ),
-            );
-          }
-
-          return Effect.succeed(decoded.success);
-        }),
-      );
+    const headSelectors = backend === "github" ? headContext.headSelectors : [null];
+    for (const headSelector of headSelectors) {
+      const pullRequests = yield* listPullRequests(cwd, details.branch, {
+        state: "all",
+        limit: backend === "github" ? 20 : 50,
+        ...(headSelector ? { headSelector } : {}),
+      });
 
       for (const pr of pullRequests) {
-        if (!matchesBranchHeadContext(pr, headContext)) {
+        const normalized = toPullRequestInfo(pr);
+        if (!matchesBranchHeadContext(normalized, headContext)) {
           continue;
         }
-        parsedByNumber.set(pr.number, pr);
+        parsedByNumber.set(normalized.number, normalized);
       }
     }
 
@@ -1029,11 +1233,9 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       }
     }
 
-    const defaultFromGh = yield* gitHubCli
-      .getDefaultBranch({ cwd })
-      .pipe(Effect.catch(() => Effect.succeed(null)));
-    if (defaultFromGh) {
-      return defaultFromGh;
+    const defaultBranch = yield* getDefaultBranch(cwd, branch);
+    if (defaultBranch) {
+      return defaultBranch;
     }
 
     return "main";
@@ -1255,28 +1457,17 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       modelSelection,
     });
 
-    const bodyFile = path.join(tempDir, `t3code-pr-body-${process.pid}-${randomUUID()}.md`);
-    yield* fileSystem
-      .writeFileString(bodyFile, generated.body)
-      .pipe(
-        Effect.mapError((cause) =>
-          gitManagerError("runPrStep", "Failed to write pull request body temp file.", cause),
-        ),
-      );
     yield* emit({
       kind: "phase_started",
       phase: "pr",
-      label: "Creating GitHub pull request...",
+      label: "Creating pull request...",
     });
-    yield* gitHubCli
-      .createPullRequest({
-        cwd,
-        baseBranch,
-        headSelector: headContext.preferredHeadSelector,
-        title: generated.title,
-        bodyFile,
-      })
-      .pipe(Effect.ensuring(fileSystem.remove(bodyFile).pipe(Effect.catch(() => Effect.void))));
+    yield* createPullRequest(cwd, branch, {
+      baseBranch,
+      headSelector: headContext.preferredHeadSelector,
+      title: generated.title,
+      body: generated.body,
+    });
 
     const created = yield* findOpenPr(cwd, headContext);
     if (!created) {
@@ -1329,12 +1520,10 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
 
   const resolvePullRequest: GitManagerShape["resolvePullRequest"] = Effect.fn("resolvePullRequest")(
     function* (input) {
-      const pullRequest = yield* gitHubCli
-        .getPullRequest({
-          cwd: input.cwd,
-          reference: normalizePullRequestReference(input.reference),
-        })
-        .pipe(Effect.map((resolved) => toResolvedPullRequest(resolved)));
+      const pullRequest = yield* getPullRequest(
+        input.cwd,
+        normalizePullRequestReference(input.reference),
+      ).pipe(Effect.map((resolved) => toResolvedPullRequest(resolved)));
 
       return { pullRequest };
     },
@@ -1364,30 +1553,32 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     return yield* Effect.gen(function* () {
       const normalizedReference = normalizePullRequestReference(input.reference);
       const rootWorktreePath = canonicalizeExistingPath(input.cwd);
-      const pullRequestSummary = yield* gitHubCli.getPullRequest({
-        cwd: input.cwd,
-        reference: normalizedReference,
-      });
+      const pullRequestSummary = yield* getPullRequest(input.cwd, normalizedReference);
       const pullRequest = toResolvedPullRequest(pullRequestSummary);
+      const pullRequestWithRemoteInfo = {
+        ...pullRequest,
+        ...toPullRequestHeadRemoteInfo(pullRequestSummary),
+      } as const;
+      const localPullRequestBranch =
+        resolvePullRequestWorktreeLocalBranchName(pullRequestWithRemoteInfo);
 
       if (input.mode === "local") {
-        yield* gitHubCli.checkoutPullRequest({
-          cwd: input.cwd,
-          reference: normalizedReference,
-          force: true,
-        });
-        const details = yield* gitCore.statusDetails(input.cwd);
+        yield* materializePullRequestHeadBranch(
+          input.cwd,
+          pullRequestWithRemoteInfo,
+          localPullRequestBranch,
+        );
+        yield* Effect.scoped(
+          gitCore.checkoutBranch({ cwd: input.cwd, branch: localPullRequestBranch }),
+        );
         yield* configurePullRequestHeadUpstream(
           input.cwd,
-          {
-            ...pullRequest,
-            ...toPullRequestHeadRemoteInfo(pullRequestSummary),
-          },
-          details.branch ?? pullRequest.headBranch,
+          pullRequestWithRemoteInfo,
+          localPullRequestBranch,
         );
         return {
           pullRequest,
-          branch: details.branch ?? pullRequest.headBranch,
+          branch: localPullRequestBranch,
           worktreePath: null,
         };
       }
@@ -1405,13 +1596,6 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
           details.branch ?? pullRequest.headBranch,
         );
       });
-
-      const pullRequestWithRemoteInfo = {
-        ...pullRequest,
-        ...toPullRequestHeadRemoteInfo(pullRequestSummary),
-      } as const;
-      const localPullRequestBranch =
-        resolvePullRequestWorktreeLocalBranchName(pullRequestWithRemoteInfo);
 
       const findLocalHeadBranch = (cwd: string) =>
         gitCore.listBranches({ cwd }).pipe(
