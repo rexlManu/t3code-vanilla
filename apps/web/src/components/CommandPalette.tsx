@@ -99,7 +99,7 @@ import {
 } from "./CommandPalette.logic";
 import { resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
 import { CommandPaletteResults } from "./CommandPaletteResults";
-import { AzureDevOpsIcon, BitbucketIcon, GitHubIcon, GitLabIcon } from "./Icons";
+import { AzureDevOpsIcon, BitbucketIcon, GiteaIcon, GitHubIcon, GitLabIcon } from "./Icons";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { ThreadRowLeadingStatus, ThreadRowTrailingStatus } from "./ThreadStatusIndicators";
 import { useServerKeybindings } from "../rpc/serverState";
@@ -153,7 +153,7 @@ interface AddProjectEnvironmentOption {
 
 type AddProjectRemoteProviderKind = Extract<
   SourceControlProviderKind,
-  "github" | "gitlab" | "bitbucket" | "azure-devops"
+  "github" | "gitlab" | "gitea" | "bitbucket" | "azure-devops"
 >;
 type AddProjectRemoteSource = AddProjectRemoteProviderKind | "url";
 
@@ -176,12 +176,14 @@ const REMOTE_PROJECT_SOURCES: ReadonlyArray<AddProjectRemoteSource> = [
   "url",
   "github",
   "gitlab",
+  "gitea",
   "bitbucket",
   "azure-devops",
 ];
 const REMOTE_PROJECT_PROVIDER_SOURCES: ReadonlyArray<AddProjectRemoteProviderKind> = [
   "github",
   "gitlab",
+  "gitea",
   "bitbucket",
   "azure-devops",
 ];
@@ -192,6 +194,8 @@ function remoteProjectSourceLabel(source: AddProjectRemoteSource): string {
       return "GitHub";
     case "gitlab":
       return "GitLab";
+    case "gitea":
+      return "Gitea";
     case "bitbucket":
       return "Bitbucket";
     case "azure-devops":
@@ -207,6 +211,8 @@ function remoteProjectSourcePathHint(source: AddProjectRemoteSource): string {
       return "owner/repo";
     case "gitlab":
       return "group/project";
+    case "gitea":
+      return "owner/repo";
     case "bitbucket":
       return "workspace/repository";
     case "azure-devops":
@@ -228,6 +234,8 @@ function remoteProjectSourceIcon(source: AddProjectRemoteSource, className: stri
       return <GitHubIcon className={className} />;
     case "gitlab":
       return <GitLabIcon className={className} />;
+    case "gitea":
+      return <GiteaIcon className={className} />;
     case "bitbucket":
       return <BitbucketIcon className={className} />;
     case "azure-devops":
@@ -279,6 +287,7 @@ function buildAddProjectRemoteSourceReadiness(
     url: { ready: true, hint: null },
     github: unavailable,
     gitlab: unavailable,
+    gitea: unavailable,
     bitbucket: unavailable,
     "azure-devops": unavailable,
   };
@@ -1036,6 +1045,7 @@ function OpenCommandPaletteDialog() {
       "git",
       "github",
       "gitlab",
+      "gitea",
       "bitbucket",
       "azure",
       "devops",

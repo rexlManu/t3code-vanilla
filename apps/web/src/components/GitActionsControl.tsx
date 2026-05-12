@@ -26,7 +26,13 @@ import {
   GlobeIcon,
 } from "lucide-react";
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
-import { AzureDevOpsIcon, BitbucketIcon, GitHubIcon, GitLabIcon } from "~/components/Icons";
+import {
+  AzureDevOpsIcon,
+  BitbucketIcon,
+  GiteaIcon,
+  GitHubIcon,
+  GitLabIcon,
+} from "~/components/Icons";
 import { RadioGroup } from "~/components/ui/radio-group";
 import { Spinner } from "~/components/ui/spinner";
 import { cn } from "~/lib/utils";
@@ -99,7 +105,7 @@ interface PendingDefaultBranchAction {
 
 type PublishProviderKind = Extract<
   SourceControlProviderKind,
-  "github" | "gitlab" | "bitbucket" | "azure-devops"
+  "github" | "gitlab" | "gitea" | "bitbucket" | "azure-devops"
 >;
 
 type GitActionToastId = ReturnType<typeof toastManager.add>;
@@ -145,6 +151,14 @@ const PUBLISH_PROVIDER_OPTIONS = [
     host: "gitlab.com",
     pathPlaceholder: "group/project",
     Icon: GitLabIcon,
+  },
+  {
+    value: "gitea",
+    label: "Gitea",
+    description: "gitea.com",
+    host: "gitea.com",
+    pathPlaceholder: "owner/repo",
+    Icon: GiteaIcon,
   },
   {
     value: "bitbucket",
@@ -373,6 +387,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
     const accounts: Record<PublishProviderKind, string | null> = {
       github: null,
       gitlab: null,
+      gitea: null,
       bitbucket: null,
       "azure-devops": null,
     };

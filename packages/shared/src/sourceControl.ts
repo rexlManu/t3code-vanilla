@@ -1,7 +1,7 @@
 import type { SourceControlProviderInfo, SourceControlProviderKind } from "@t3tools/contracts";
 
 export interface ChangeRequestPresentation {
-  readonly icon: "github" | "gitlab" | "azure-devops" | "bitbucket" | "change-request";
+  readonly icon: "github" | "gitlab" | "gitea" | "azure-devops" | "bitbucket" | "change-request";
   readonly providerName: string;
   readonly shortName: string;
   readonly longName: string;
@@ -41,6 +41,17 @@ const GITLAB_CHANGE_REQUEST_PRESENTATION: ChangeRequestPresentation = {
   providerLongName: "GitLab merge request",
   checkoutCommandExample: "glab mr checkout 123",
   urlExample: "https://gitlab.com/group/project/-/merge_requests/42",
+};
+
+const GITEA_CHANGE_REQUEST_PRESENTATION: ChangeRequestPresentation = {
+  icon: "gitea",
+  providerName: "Gitea",
+  shortName: "PR",
+  longName: "pull request",
+  pluralLongName: "pull requests",
+  providerLongName: "Gitea pull request",
+  checkoutCommandExample: "tea pr checkout 123",
+  urlExample: "https://gitea.com/owner/repo/pulls/42",
 };
 
 const AZURE_DEVOPS_CHANGE_REQUEST_PRESENTATION: ChangeRequestPresentation = {
@@ -83,6 +94,8 @@ export function resolveChangeRequestPresentation(
       return GITHUB_CHANGE_REQUEST_PRESENTATION;
     case "gitlab":
       return GITLAB_CHANGE_REQUEST_PRESENTATION;
+    case "gitea":
+      return GITEA_CHANGE_REQUEST_PRESENTATION;
     case "azure-devops":
       return AZURE_DEVOPS_CHANGE_REQUEST_PRESENTATION;
     case "bitbucket":
@@ -167,6 +180,16 @@ function isGitLabHost(host: string): boolean {
   return host === "gitlab.com" || host.includes("gitlab");
 }
 
+function isGiteaHost(host: string): boolean {
+  return (
+    host === "gitea.com" ||
+    host === "codeberg.org" ||
+    host.includes("gitea") ||
+    host.includes("forgejo") ||
+    host.includes("codeberg")
+  );
+}
+
 function isAzureDevOpsHost(host: string): boolean {
   return host === "dev.azure.com" || host.endsWith(".visualstudio.com");
 }
@@ -195,6 +218,21 @@ export function detectSourceControlProviderFromRemoteUrl(
     return {
       kind: "gitlab",
       name: host === "gitlab.com" ? "GitLab" : "GitLab Self-Hosted",
+      baseUrl: toBaseUrl(host),
+    };
+  }
+
+  if (isGiteaHost(host)) {
+    return {
+      kind: "gitea",
+      name:
+        host === "gitea.com"
+          ? "Gitea"
+          : host === "codeberg.org"
+            ? "Codeberg"
+            : host.includes("forgejo")
+              ? "Forgejo"
+              : "Gitea Self-Hosted",
       baseUrl: toBaseUrl(host),
     };
   }
