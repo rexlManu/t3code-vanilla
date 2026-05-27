@@ -60,7 +60,11 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     Effect.gen(function* () {
       const { join } = yield* Path.Path;
       const baseDir = join(NodeOS.tmpdir(), "t3-cli-config-env-base");
-      const derivedPaths = yield* deriveServerPaths(baseDir, new URL("http://127.0.0.1:5173"));
+      const derivedPaths = yield* deriveServerPaths(
+        baseDir,
+        new URL("http://127.0.0.1:5173"),
+        "local-dev",
+      );
       const resolved = yield* resolveServerConfig(
         {
           mode: Option.none(),
@@ -88,6 +92,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
                   T3CODE_PORT: "4001",
                   T3CODE_HOST: "0.0.0.0",
                   T3CODE_HOME: baseDir,
+                  T3CODE_STATE_PROFILE: "local-dev",
                   VITE_DEV_SERVER_URL: "http://127.0.0.1:5173",
                   T3CODE_NO_BROWSER: "true",
                   T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "false",

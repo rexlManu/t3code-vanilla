@@ -95,6 +95,22 @@ describe("DesktopEnvironment", () => {
     }),
   );
 
+  it.effect("allows the state profile to be overridden for local launchers", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment(
+        {},
+        {
+          T3CODE_HOME: "/tmp/t3",
+          T3CODE_STATE_PROFILE: "dev",
+        },
+      );
+
+      assert.equal(environment.isDevelopment, false);
+      assert.equal(environment.stateDir, "/tmp/t3/dev");
+      assert.equal(environment.serverSettingsPath, "/tmp/t3/dev/settings.json");
+    }),
+  );
+
   it.effect("resolves picker defaults without nullish sentinels", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment();

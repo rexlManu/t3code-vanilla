@@ -105,6 +105,15 @@ function resolveDesktopAppBranding(input: {
   };
 }
 
+function resolveStateProfile(input: {
+  readonly configuredProfile: Option.Option<string>;
+  readonly isDevelopment: boolean;
+}): string {
+  return Option.getOrElse(input.configuredProfile, () =>
+    input.isDevelopment ? "dev" : "userdata",
+  );
+}
+
 function normalizeDesktopArch(arch: string): DesktopRuntimeArch {
   if (arch === "arm64") return "arm64";
   if (arch === "x64") return "x64";
@@ -159,7 +168,13 @@ const makeDesktopEnvironment = Effect.fn("desktop.environment.make")(function* (
     appVersion: input.appVersion,
   });
   const displayName = branding.displayName;
-  const stateDir = path.join(baseDir, isDevelopment ? "dev" : "userdata");
+  const stateDir = path.join(
+    baseDir,
+    resolveStateProfile({
+      configuredProfile: config.stateProfile,
+      isDevelopment,
+    }),
+  );
   const userDataDirName = isDevelopment ? "t3code-dev" : "t3code";
   const legacyUserDataDirName = isDevelopment ? "T3 Code (Dev)" : "T3 Code (Alpha)";
   const resourcesPath = input.resourcesPath;
