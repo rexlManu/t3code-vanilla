@@ -1,0 +1,53 @@
+name: Sync Upstream
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream-main
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPOSITORY: pingdotgg/t3code
+  UPSTREAM_BRANCH: main
+  TARGET_BRANCH: main
+
+jobs:
+  sync:
+    name: Fast-forward fork main from upstream
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ env.TARGET_BRANCH }}
+
+      - name: Configure upstream remote
+        run: |
+          git remote add upstream "https://github.com/${UPSTREAM_REPOSITORY}.git" 2>/dev/null \
+            || git remote set-url upstream "https://github.com/${UPSTREAM_REPOSITORY}.git"
+
+      - name: Fetch upstream and fork main
+        run: |
+          git fetch --no-tags upstream "${UPSTREAM_BRANCH}"
+          git fetch --no-tags origin "${TARGET_BRANCH}"
+
+      - name: Verify fast-forward safety
+        run: |
+          if ! git merge-base --is-ancestor \
+            "refs/remotes/origin/${TARGET_BRANCH}" \
+            "refs/remotes/upstream/${UPSTREAM_BRANCH}"; then
+            echo "origin/${TARGET_BRANCH} contains commits that are not in upstream/${UPSTREAM_BRANCH}" >&2
+            echo "Refusing to overwrite fork-only commits. Keep customizations on custom/main." >&2
+            exit 1
+          fi
+
+      - name: Push upstream main to fork main
+        run: |
+          git push origin "refs/remotes/upstream/${UPSTREAM_BRANCH}:refs/heads/${TARGET_BRANCH}"
