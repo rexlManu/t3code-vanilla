@@ -327,10 +327,20 @@ export const resolveSshTarget = Effect.fn("ssh/command.resolveSshTarget")(functi
 
 export function resolveRemoteT3CliPackageSpec(input: {
   readonly appVersion: string;
+  readonly cliPackageVersion?: string;
   readonly updateChannel: DesktopUpdateChannel;
   readonly isDevelopment?: boolean;
 }): string {
   const appVersion = input.appVersion.trim();
+  const cliPackageVersion = input.cliPackageVersion?.trim();
+  if (
+    !input.isDevelopment &&
+    cliPackageVersion &&
+    PUBLISHABLE_T3_VERSION_PATTERN.test(cliPackageVersion)
+  ) {
+    return `t3@${cliPackageVersion}`;
+  }
+
   if (!input.isDevelopment && PUBLISHABLE_T3_VERSION_PATTERN.test(appVersion)) {
     return `t3@${appVersion}`;
   }
