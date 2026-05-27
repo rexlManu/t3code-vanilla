@@ -50,9 +50,18 @@ export class ElectronSafeStorage extends Context.Service<
   ElectronSafeStorageShape
 >()("@t3tools/desktop/ElectronSafeStorage") {}
 
+function isEncryptionAvailable(): boolean {
+  if (Electron.safeStorage.isEncryptionAvailable()) {
+    return true;
+  }
+
+  Electron.safeStorage.setUsePlainTextEncryption(true);
+  return Electron.safeStorage.isEncryptionAvailable();
+}
+
 const make = ElectronSafeStorage.of({
   isEncryptionAvailable: Effect.try({
-    try: () => Electron.safeStorage.isEncryptionAvailable(),
+    try: isEncryptionAvailable,
     catch: (cause) => new ElectronSafeStorageAvailabilityError({ cause }),
   }),
   encryptString: (value) =>
