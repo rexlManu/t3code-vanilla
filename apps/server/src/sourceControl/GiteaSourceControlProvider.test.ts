@@ -2,6 +2,7 @@ import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import { ChildProcessSpawner } from "effect/unstable/process";
 
 import * as GiteaCli from "./GiteaCli.ts";
 import * as GiteaSourceControlProvider from "./GiteaSourceControlProvider.ts";
@@ -11,6 +12,24 @@ function makeProvider(gitea: Partial<GiteaCli.GiteaCliShape>) {
     Effect.provide(Layer.mock(GiteaCli.GiteaCli)(gitea)),
   );
 }
+
+it("parses Tea login list table output", () => {
+  const auth = GiteaSourceControlProvider.discovery.parseAuth({
+    exitCode: ChildProcessSpawner.ExitCode(0),
+    stderr: "",
+    stdout: `
+┌──────┬──────────────────────┬──────────────┬──────────┬─────────┐
+│ NAME │         URL          │   SSH HOST   │   USER   │ DEFAULT │
+├──────┼──────────────────────┼──────────────┼──────────┼─────────┤
+│ manu │ https://git.manu.moe │ git.manu.moe │ rexlManu │ false   │
+└──────┴──────────────────────┴──────────────┴──────────┴─────────┘
+`,
+  });
+
+  assert.strictEqual(auth.status, "authenticated");
+  assert.deepStrictEqual(auth.account, Option.some("rexlManu"));
+  assert.deepStrictEqual(auth.host, Option.some("git.manu.moe"));
+});
 
 it.effect("maps Gitea PR summaries into provider-neutral change requests", () =>
   Effect.gen(function* () {

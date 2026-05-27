@@ -41,13 +41,45 @@ function toChangeRequest(summary: GiteaCli.GiteaPullRequestSummary): ChangeReque
   };
 }
 
+function parseTeaLoginListTable(
+  output: string,
+): { readonly account: string; readonly host: string } | null {
+  for (const line of output.split(/\r?\n/u)) {
+    const cells = line
+      .split("│")
+      .map((cell) => cell.trim())
+      .filter((cell) => cell.length > 0);
+    if (cells.length < 4 || cells[0] === "NAME" || !cells[1]?.startsWith("http")) {
+      continue;
+    }
+
+    const account = cells[3];
+    if (!account || account === "USER") {
+      continue;
+    }
+
+    try {
+      return { account, host: new URL(cells[1]).host };
+    } catch {
+      const host = cells[2];
+      if (host) {
+        return { account, host };
+      }
+    }
+  }
+  return null;
+}
+
 function parseGiteaAuth(input: SourceControlProviderDiscovery.SourceControlAuthProbeInput) {
   const output = SourceControlProviderDiscovery.combinedAuthOutput(input);
-  const account = SourceControlProviderDiscovery.matchFirst(output, [
-    /Logged in as\s+([^\s(]+)/iu,
-    /User(?:Name)?:\s*([^\s(]+)/iu,
-  ]);
-  const host = SourceControlProviderDiscovery.parseCliHost(output);
+  const tableAuth = parseTeaLoginListTable(output);
+  const account =
+    tableAuth?.account ??
+    SourceControlProviderDiscovery.matchFirst(output, [
+      /Logged in as\s+([^\s(]+)/iu,
+      /User(?:Name)?:\s*([^\s(]+)/iu,
+    ]);
+  const host = tableAuth?.host ?? SourceControlProviderDiscovery.parseCliHost(output);
 
   if (input.exitCode !== 0) {
     return SourceControlProviderDiscovery.providerAuth({
