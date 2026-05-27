@@ -2,6 +2,7 @@ import {
   AuthBearerBootstrapResult,
   AuthSessionState,
   AuthWebSocketTokenResult,
+  ServerAuthDescriptor,
   type AuthBearerBootstrapResult as AuthBearerBootstrapResultType,
   type AuthSessionState as AuthSessionStateType,
   type AuthWebSocketTokenResult as AuthWebSocketTokenResultType,
@@ -58,9 +59,27 @@ export class DesktopSshRemoteApi extends Context.Service<
 const decodeExecutionEnvironmentDescriptor = Schema.decodeUnknownEffect(
   ExecutionEnvironmentDescriptor,
 );
-const decodeAuthBearerBootstrapResult = Schema.decodeUnknownEffect(AuthBearerBootstrapResult);
-const decodeAuthSessionState = Schema.decodeUnknownEffect(AuthSessionState);
-const decodeAuthWebSocketTokenResult = Schema.decodeUnknownEffect(AuthWebSocketTokenResult);
+const AuthBearerBootstrapJsonResult = Schema.Struct({
+  authenticated: Schema.Literal(true),
+  role: AuthBearerBootstrapResult.fields.role,
+  sessionMethod: Schema.Literal("bearer-session-token"),
+  expiresAt: Schema.DateTimeUtcFromString,
+  sessionToken: AuthBearerBootstrapResult.fields.sessionToken,
+});
+const AuthSessionJsonState = Schema.Struct({
+  authenticated: Schema.Boolean,
+  auth: ServerAuthDescriptor,
+  role: Schema.optionalKey(AuthSessionState.fields.role),
+  sessionMethod: Schema.optionalKey(AuthSessionState.fields.sessionMethod),
+  expiresAt: Schema.optionalKey(Schema.DateTimeUtcFromString),
+});
+const AuthWebSocketJsonTokenResult = Schema.Struct({
+  token: AuthWebSocketTokenResult.fields.token,
+  expiresAt: Schema.DateTimeUtcFromString,
+});
+const decodeAuthBearerBootstrapResult = Schema.decodeUnknownEffect(AuthBearerBootstrapJsonResult);
+const decodeAuthSessionState = Schema.decodeUnknownEffect(AuthSessionJsonState);
+const decodeAuthWebSocketTokenResult = Schema.decodeUnknownEffect(AuthWebSocketJsonTokenResult);
 
 const mapError =
   (operation: DesktopSshRemoteApiOperation) =>

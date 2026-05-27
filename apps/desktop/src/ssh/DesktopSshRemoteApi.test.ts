@@ -76,4 +76,32 @@ describe("DesktopSshRemoteApi", () => {
       assert.equal(error.cause instanceof SshHttpBridgeError, false);
     }).pipe(Effect.provide(layer));
   });
+
+  it.effect("decodes bearer bootstrap timestamp strings from the remote API", () => {
+    const requestUrls: string[] = [];
+    const layer = makeLayer((request) =>
+      Effect.sync(() => {
+        requestUrls.push(request.url);
+        return jsonResponse(request, {
+          authenticated: true,
+          role: "client",
+          sessionMethod: "bearer-session-token",
+          expiresAt: "2026-06-26T18:18:23.171Z",
+          sessionToken: "session-token",
+        });
+      }),
+    );
+
+    return Effect.gen(function* () {
+      const remoteApi = yield* DesktopSshRemoteApi.DesktopSshRemoteApi;
+      const result = yield* remoteApi.bootstrapBearerSession({
+        httpBaseUrl: "http://127.0.0.1:41773/",
+        credential: "PAIRCODE",
+      });
+
+      assert.equal(result.sessionToken, "session-token");
+      assert.equal(String(result.expiresAt), "DateTime.Utc(2026-06-26T18:18:23.171Z)");
+      assert.deepEqual(requestUrls, ["http://127.0.0.1:41773/api/auth/bootstrap/bearer"]);
+    }).pipe(Effect.provide(layer));
+  });
 });
