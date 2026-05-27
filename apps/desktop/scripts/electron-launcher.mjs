@@ -27,6 +27,65 @@ const repoRoot = resolve(desktopDir, "..", "..");
 const defaultIconPath = join(desktopDir, "resources", "icon.icns");
 const developmentMacIconPngPath = join(repoRoot, "assets", "dev", "blueprint-macos-1024.png");
 
+function trimNonEmpty(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeLinuxOzonePlatform(value) {
+  const normalized = trimNonEmpty(value)?.toLowerCase();
+  if (normalized === "auto" || normalized === "wayland" || normalized === "x11") {
+    return normalized;
+  }
+
+  return null;
+}
+
+function hasWaylandSession(env) {
+  if (trimNonEmpty(env.WAYLAND_DISPLAY)) {
+    return true;
+  }
+
+  return trimNonEmpty(env.XDG_SESSION_TYPE)?.toLowerCase() === "wayland";
+}
+
+function normalizeDeviceScaleFactor(value) {
+  const normalized = trimNonEmpty(value);
+  if (!normalized) {
+    return null;
+  }
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) && parsed > 0 ? normalized : null;
+}
+
+export function resolveElectronLaunchArgs(env = process.env) {
+  if (process.platform !== "linux") {
+    return [];
+  }
+
+  const args = [];
+  const configuredOzonePlatform = normalizeLinuxOzonePlatform(env.T3CODE_LINUX_OZONE_PLATFORM);
+  const ozonePlatform = configuredOzonePlatform ?? (hasWaylandSession(env) ? "wayland" : null);
+  if (ozonePlatform) {
+    args.push("--enable-features=UseOzonePlatform,WaylandWindowDecorations");
+    args.push(`--ozone-platform=${ozonePlatform}`);
+    args.push("--disable-features=WaylandFractionalScaleV1");
+    args.push("--enable-wayland-ime");
+  }
+
+  const deviceScaleFactor = normalizeDeviceScaleFactor(env.T3CODE_FORCE_DEVICE_SCALE_FACTOR);
+  if (deviceScaleFactor) {
+    args.push(`--force-device-scale-factor=${deviceScaleFactor}`);
+  }
+
+  return args;
+}
+
 function setPlistString(plistPath, key, value) {
   const replaceResult = spawnSync("plutil", ["-replace", key, "-string", value, plistPath], {
     encoding: "utf8",
