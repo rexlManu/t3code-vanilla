@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
 import { ProviderInstanceId } from "./providerInstance.ts";
@@ -61,6 +61,18 @@ describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
         providerInstances: { "1bad": { driver: "codex" } },
       }),
     ).toThrow();
+  });
+});
+
+describe("ServerSettings worktree defaults", () => {
+  it("defaults start-from-origin off for legacy configs", () => {
+    expect(decodeServerSettings({}).newWorktreesStartFromOrigin).toBe(false);
+  });
+
+  it("accepts start-from-origin updates", () => {
+    expect(
+      decodeServerSettingsPatch({ newWorktreesStartFromOrigin: true }).newWorktreesStartFromOrigin,
+    ).toBe(true);
   });
 });
 

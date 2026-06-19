@@ -18,6 +18,8 @@ import {
   type VcsCreateRefResult,
   type VcsCreateWorktreeInput,
   type VcsCreateWorktreeResult,
+  type ReviewDiffPreviewInput,
+  type ReviewDiffPreviewResult,
   type VcsInitInput,
   type VcsListRefsInput,
   type VcsListRefsResult,
@@ -60,6 +62,17 @@ export interface GitStatusDetails {
   upstreamRef: string | null;
   hasWorkingTreeChanges: boolean;
   workingTree: VcsStatusResult["workingTree"];
+  hasUpstream: boolean;
+  aheadCount: number;
+  behindCount: number;
+  aheadOfDefaultCount: number;
+}
+
+export interface GitRemoteStatusDetails {
+  isRepo: boolean;
+  isDefaultBranch: boolean;
+  branch: string | null;
+  upstreamRef: string | null;
   hasUpstream: boolean;
   aheadCount: number;
   behindCount: number;
@@ -148,6 +161,22 @@ export interface GitFetchRemoteTrackingBranchInput {
   remoteBranch: string;
 }
 
+export interface GitFetchRemoteInput {
+  cwd: string;
+  remoteName: string;
+}
+
+export interface GitResolveRemoteTrackingCommitInput {
+  cwd: string;
+  refName: string;
+  fallbackRemoteName: string;
+}
+
+export interface GitResolveRemoteTrackingCommitResult {
+  commitSha: string;
+  remoteRefName: string;
+}
+
 export interface GitSetBranchUpstreamInput {
   cwd: string;
   branch: string;
@@ -155,11 +184,19 @@ export interface GitSetBranchUpstreamInput {
   remoteBranch: string;
 }
 
+export interface GitRemoteStatusOptions {
+  readonly refreshUpstream?: boolean;
+}
+
 export interface GitVcsDriverShape {
   readonly execute: (input: ExecuteGitInput) => Effect.Effect<ExecuteGitResult, GitCommandError>;
   readonly status: (input: VcsStatusInput) => Effect.Effect<VcsStatusResult, GitCommandError>;
   readonly statusDetails: (cwd: string) => Effect.Effect<GitStatusDetails, GitCommandError>;
   readonly statusDetailsLocal: (cwd: string) => Effect.Effect<GitStatusDetails, GitCommandError>;
+  readonly statusDetailsRemote: (
+    cwd: string,
+    options?: GitRemoteStatusOptions,
+  ) => Effect.Effect<GitRemoteStatusDetails, GitCommandError>;
   readonly prepareCommitContext: (
     cwd: string,
     filePaths?: readonly string[],
@@ -179,6 +216,9 @@ export interface GitVcsDriverShape {
     cwd: string,
     baseRef: string,
   ) => Effect.Effect<GitRangeContext, GitCommandError>;
+  readonly getReviewDiffPreview: (
+    input: ReviewDiffPreviewInput,
+  ) => Effect.Effect<ReviewDiffPreviewResult, GitCommandError>;
   readonly readConfigValue: (
     cwd: string,
     key: string,
@@ -193,6 +233,10 @@ export interface GitVcsDriverShape {
   ) => Effect.Effect<void, GitCommandError>;
   readonly ensureRemote: (input: GitEnsureRemoteInput) => Effect.Effect<string, GitCommandError>;
   readonly resolvePrimaryRemoteName: (cwd: string) => Effect.Effect<string, GitCommandError>;
+  readonly fetchRemote: (input: GitFetchRemoteInput) => Effect.Effect<void, GitCommandError>;
+  readonly resolveRemoteTrackingCommit: (
+    input: GitResolveRemoteTrackingCommitInput,
+  ) => Effect.Effect<GitResolveRemoteTrackingCommitResult, GitCommandError>;
   readonly fetchRemoteBranch: (
     input: GitFetchRemoteBranchInput,
   ) => Effect.Effect<void, GitCommandError>;
@@ -398,7 +442,7 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
       "GitVcsDriver.detectRepository.commonDir",
       cwd,
       ["rev-parse", "--git-common-dir"],
-    ).pipe(Effect.catch(() => Effect.succeed(null)));
+    ).pipe(Effect.orElseSucceed(() => null));
 
     return {
       kind: "git" as const,

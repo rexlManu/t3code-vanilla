@@ -52,7 +52,7 @@ export interface SourceControlProviderRegistryShape {
 export class SourceControlProviderRegistry extends Context.Service<
   SourceControlProviderRegistry,
   SourceControlProviderRegistryShape
->()("t3/source-control/SourceControlProviderRegistry") {}
+>()("t3/sourceControl/SourceControlProviderRegistry") {}
 
 function unsupportedProvider(
   kind: SourceControlProviderKind,
@@ -93,18 +93,17 @@ function selectProviderContext(
     readonly url: string;
   }>,
 ): SourceControlProvider.SourceControlProviderContext | null {
-  const candidates = remotes
-    .map((remote) => {
-      const provider = detectSourceControlProviderFromRemoteUrl(remote.url);
-      return provider
-        ? {
-            provider,
-            remoteName: remote.name,
-            remoteUrl: remote.url,
-          }
-        : null;
-    })
-    .filter((value): value is SourceControlProvider.SourceControlProviderContext => value !== null);
+  const candidates: Array<SourceControlProvider.SourceControlProviderContext> = [];
+  for (const remote of remotes) {
+    const provider = detectSourceControlProviderFromRemoteUrl(remote.url);
+    if (provider) {
+      candidates.push({
+        provider,
+        remoteName: remote.name,
+        remoteUrl: remote.url,
+      });
+    }
+  }
 
   return (
     candidates.find((candidate) => candidate.remoteName === "origin") ??
@@ -180,8 +179,14 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
         const remotes = yield* handle.driver
           .listRemotes(cwd)
           .pipe(Effect.mapError((error) => providerDetectionError("detectProvider", cwd, error)));
+        const context = selectProviderContext(remotes.remotes);
 
-        return selectProviderContext(remotes.remotes);
+        return yield* SourceControlProviderDiscovery.refineUnknownRemoteProvider({
+          specs: discoverySpecs,
+          process,
+          cwd,
+          context,
+        });
       },
     );
 

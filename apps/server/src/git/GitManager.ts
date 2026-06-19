@@ -1,8 +1,7 @@
-import { randomUUID } from "node:crypto";
-
 import * as Arr from "effect/Array";
 import * as Cache from "effect/Cache";
 import * as Context from "effect/Context";
+import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -48,7 +47,11 @@ import { ProjectSetupScriptRunner } from "../project/Services/ProjectSetupScript
 import { extractBranchNameFromRemoteRef } from "./remoteRefs.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import type { GitManagerServiceError } from "@t3tools/contracts";
-import { GitVcsDriver, type GitStatusDetails } from "../vcs/GitVcsDriver.ts";
+import {
+  GitVcsDriver,
+  type GitRemoteStatusOptions,
+  type GitStatusDetails,
+} from "../vcs/GitVcsDriver.ts";
 import { SourceControlProviderRegistry } from "../sourceControl/SourceControlProviderRegistry.ts";
 import type { ChangeRequest } from "@t3tools/contracts";
 
@@ -70,6 +73,7 @@ export interface GitManagerShape {
   ) => Effect.Effect<VcsStatusLocalResult, GitManagerServiceError>;
   readonly remoteStatus: (
     input: VcsStatusInput,
+    options?: GitRemoteStatusOptions,
   ) => Effect.Effect<VcsStatusRemoteResult | null, GitManagerServiceError>;
   readonly invalidateLocalStatus: (cwd: string) => Effect.Effect<void, never>;
   readonly invalidateRemoteStatus: (cwd: string) => Effect.Effect<void, never>;
@@ -532,32 +536,39 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
   const sourceControlProviders = yield* SourceControlProviderRegistry;
   const textGeneration = yield* TextGeneration;
   const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
+  const crypto = yield* Crypto.Crypto;
 
   const sourceControlProvider = (cwd: string) => sourceControlProviders.resolve({ cwd });
   const serverSettingsService = yield* ServerSettingsService;
+  const randomUUIDv4 = crypto.randomUUIDv4.pipe(
+    Effect.mapError((cause) =>
+      gitManagerError("randomUUIDv4", "Failed to generate Git operation identifier.", cause),
+    ),
+  );
 
   const createProgressEmitter = (
     input: { cwd: string; action: GitStackedAction },
     options?: GitRunStackedActionOptions,
-  ) => {
-    const actionId = options?.actionId ?? randomUUID();
-    const reporter = options?.progressReporter;
+  ) =>
+    (options?.actionId === undefined ? randomUUIDv4 : Effect.succeed(options.actionId)).pipe(
+      Effect.map((actionId) => {
+        const reporter = options?.progressReporter;
+        const emit = (event: GitActionProgressPayload) =>
+          reporter
+            ? reporter.publish({
+                actionId,
+                cwd: input.cwd,
+                action: input.action,
+                ...event,
+              } as GitActionProgressEvent)
+            : Effect.void;
 
-    const emit = (event: GitActionProgressPayload) =>
-      reporter
-        ? reporter.publish({
-            actionId,
-            cwd: input.cwd,
-            action: input.action,
-            ...event,
-          } as GitActionProgressEvent)
-        : Effect.void;
-
-    return {
-      actionId,
-      emit,
-    };
-  };
+        return {
+          actionId,
+          emit,
+        };
+      }),
+    );
 
   const configurePullRequestHeadUpstreamBase = Effect.fn("configurePullRequestHeadUpstream")(
     function* (
@@ -696,7 +707,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
 
   const tempDir = process.env.TMPDIR ?? process.env.TEMP ?? process.env.TMP ?? "/tmp";
   const canonicalizeExistingPath = (value: string) =>
-    fileSystem.realPath(value).pipe(Effect.catch(() => Effect.succeed(value)));
+    fileSystem.realPath(value).pipe(Effect.orElseSucceed(() => value));
   const normalizeStatusCacheKey = canonicalizeExistingPath;
   const nonRepositoryStatusDetails = {
     isRepo: false,
@@ -739,9 +750,12 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     normalizeStatusCacheKey(cwd).pipe(
       Effect.flatMap((cacheKey) => Cache.invalidate(localStatusResultCache, cacheKey)),
     );
-  const readRemoteStatus = Effect.fn("readRemoteStatus")(function* (cwd: string) {
+  const readRemoteStatus = Effect.fn("readRemoteStatus")(function* (
+    cwd: string,
+    options?: GitRemoteStatusOptions,
+  ) {
     const details = yield* gitCore
-      .statusDetails(cwd)
+      .statusDetailsRemote(cwd, options)
       .pipe(Effect.catchIf(isNotGitRepositoryError, () => Effect.succeed(null)));
     if (details === null || !details.isRepo) {
       return null;
@@ -760,7 +774,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
               if (details.isDefaultBranch && latest.state !== "open") return null;
               return toStatusPr(latest);
             }),
-            Effect.catch(() => Effect.succeed(null)),
+            Effect.orElseSucceed(() => null),
           )
         : null;
 
@@ -772,7 +786,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       pr,
     } satisfies VcsStatusRemoteResult;
   });
-  const remoteStatusResultCache = yield* Cache.makeWith(readRemoteStatus, {
+  const remoteStatusResultCache = yield* Cache.makeWith((cwd: string) => readRemoteStatus(cwd), {
     capacity: STATUS_RESULT_CACHE_CAPACITY,
     timeToLive: (exit) => (Exit.isSuccess(exit) ? STATUS_RESULT_CACHE_TTL : Duration.zero),
   });
@@ -782,7 +796,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     );
 
   const readConfigValueNullable = (cwd: string, key: string) =>
-    gitCore.readConfigValue(cwd, key).pipe(Effect.catch(() => Effect.succeed(null)));
+    gitCore.readConfigValue(cwd, key).pipe(Effect.orElseSucceed(() => null));
 
   const resolveHostingProvider = Effect.fn("resolveHostingProvider")(function* (
     cwd: string,
@@ -966,7 +980,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
   ) {
     const terms = yield* sourceControlProvider(cwd).pipe(
       Effect.map((provider) => getChangeRequestTerminologyForKind(provider.kind)),
-      Effect.catch(() => Effect.succeed(getChangeRequestTerminologyForKind("unknown"))),
+      Effect.orElseSucceed(() => getChangeRequestTerminologyForKind("unknown")),
     );
     const summary = summarizeGitActionResult(result, terms);
     let latestOpenPr: PullRequestInfo | null = null;
@@ -1010,7 +1024,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         upstreamRef: finalBranchContext.upstreamRef,
       }).pipe(
         Effect.flatMap((headContext) => findOpenPr(cwd, headContext)),
-        Effect.catch(() => Effect.succeed(null)),
+        Effect.orElseSucceed(() => null),
       );
     }
 
@@ -1074,7 +1088,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
 
     const defaultFromProvider = yield* sourceControlProvider(cwd).pipe(
       Effect.flatMap((provider) => provider.getDefaultBranch({ cwd })),
-      Effect.catch(() => Effect.succeed(null)),
+      Effect.orElseSucceed(() => null),
     );
     if (defaultFromProvider) {
       return defaultFromProvider;
@@ -1301,7 +1315,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       modelSelection,
     });
 
-    const bodyFile = path.join(tempDir, `t3code-pr-body-${process.pid}-${randomUUID()}.md`);
+    const bodyFile = path.join(tempDir, `t3code-pr-body-${process.pid}-${yield* randomUUIDv4}.md`);
     yield* fileSystem
       .writeFileString(bodyFile, generated.body)
       .pipe(
@@ -1349,13 +1363,18 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     return yield* Cache.get(localStatusResultCache, cacheKey);
   });
   const remoteStatus: GitManagerShape["remoteStatus"] = Effect.fn("remoteStatus")(
-    function* (input) {
+    function* (input, options) {
       const cacheKey = yield* normalizeStatusCacheKey(input.cwd);
+      if (options?.refreshUpstream === false) {
+        return yield* readRemoteStatus(cacheKey, options);
+      }
       return yield* Cache.get(remoteStatusResultCache, cacheKey);
     },
   );
   const status: GitManagerShape["status"] = Effect.fn("status")(function* (input) {
-    const [local, remote] = yield* Effect.all([localStatus(input), remoteStatus(input)]);
+    const [local, remote] = yield* Effect.all([localStatus(input), remoteStatus(input)], {
+      concurrency: "unbounded",
+    });
     return mergeGitStatusParts(local, remote);
   });
   const invalidateLocalStatus: GitManagerShape["invalidateLocalStatus"] = Effect.fn(
@@ -1591,7 +1610,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
 
   const runStackedAction: GitManagerShape["runStackedAction"] = Effect.fn("runStackedAction")(
     function* (input, options) {
-      const progress = createProgressEmitter(input, options);
+      const progress = yield* createProgressEmitter(input, options);
       const currentPhase = yield* Ref.make<Option.Option<GitActionProgressPhase>>(Option.none());
 
       const runAction = Effect.fn("runStackedAction.runAction")(function* (): Effect.fn.Return<
@@ -1680,7 +1699,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         const changeRequestTerms = wantsPr
           ? yield* sourceControlProvider(input.cwd).pipe(
               Effect.map((provider) => getChangeRequestTerminologyForKind(provider.kind)),
-              Effect.catch(() => Effect.succeed(getChangeRequestTerminologyForKind("unknown"))),
+              Effect.orElseSucceed(() => getChangeRequestTerminologyForKind("unknown")),
             )
           : null;
 
