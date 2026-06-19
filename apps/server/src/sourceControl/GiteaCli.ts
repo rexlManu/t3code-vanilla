@@ -23,7 +23,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 export class GiteaCliError extends Schema.TaggedErrorClass<GiteaCliError>()("GiteaCliError", {
   operation: Schema.String,
   detail: Schema.String,
-  cause: Schema.optional(Schema.Defect),
+  cause: Schema.optional(Schema.Defect()),
 }) {
   override get message(): string {
     return `Gitea CLI failed in ${this.operation}: ${this.detail}`;
