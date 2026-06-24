@@ -45,7 +45,7 @@ import {
 import { useAtomValue } from "@effect/atom-react";
 import { OpenAddProjectCommandPaletteProvider } from "../commandPaletteContext";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
-import { useSettings } from "../hooks/useSettings";
+import { useClientSettings } from "../hooks/useSettings";
 import { readLocalApi } from "../localApi";
 import { filesystemEnvironment } from "../state/filesystem";
 import { projectEnvironment } from "../state/projects";
@@ -456,7 +456,7 @@ function OpenCommandPaletteDialog(props: {
   const deferredQuery = useDeferredValue(query);
   const isActionsOnly = deferredQuery.startsWith(">");
   const [highlightedItemValue, setHighlightedItemValue] = useState<string | null>(null);
-  const settings = useSettings();
+  const clientSettings = useClientSettings();
   const createProject = useAtomCommand(projectEnvironment.create, {
     reportFailure: false,
   });
@@ -533,16 +533,14 @@ function OpenCommandPaletteDialog(props: {
       const environment = environments.find(
         (candidate) => candidate.environmentId === environmentId,
       );
-      const environmentSettings =
-        environment?.serverConfig?.settings ??
-        (environmentId === primaryEnvironmentId ? settings : null);
+      const environmentSettings = environment?.serverConfig?.settings ?? null;
       const baseDirectory = environmentSettings?.addProjectBaseDirectory?.trim() ?? "";
       if (baseDirectory.length === 0) {
         return "~/";
       }
       return ensureBrowseDirectoryPath(baseDirectory);
     },
-    [environments, primaryEnvironmentId, settings],
+    [environments],
   );
 
   const projectCwdById = useMemo(
@@ -598,7 +596,7 @@ function OpenCommandPaletteDialog(props: {
       const latestThread = getLatestThreadForProject(
         threads.filter((thread) => thread.environmentId === project.environmentId),
         project.id,
-        settings.sidebarThreadSortOrder,
+        clientSettings.sidebarThreadSortOrder,
       );
       if (latestThread) {
         await navigate({
@@ -610,17 +608,9 @@ function OpenCommandPaletteDialog(props: {
         return;
       }
 
-      await handleNewThread(scopeProjectRef(project.environmentId, project.id), {
-        envMode: settings.defaultThreadEnvMode,
-      });
+      await handleNewThread(scopeProjectRef(project.environmentId, project.id));
     },
-    [
-      handleNewThread,
-      navigate,
-      settings.defaultThreadEnvMode,
-      settings.sidebarThreadSortOrder,
-      threads,
-    ],
+    [handleNewThread, navigate, clientSettings.sidebarThreadSortOrder, threads],
   );
 
   const projectSearchItems = useMemo(
@@ -659,21 +649,13 @@ function OpenCommandPaletteDialog(props: {
               activeDraftThread,
               activeThread: activeThread ?? undefined,
               defaultProjectRef,
-              defaultThreadEnvMode: settings.defaultThreadEnvMode,
               handleNewThread,
             },
             scopeProjectRef(project.environmentId, project.id),
           );
         },
       }),
-    [
-      activeDraftThread,
-      activeThread,
-      defaultProjectRef,
-      handleNewThread,
-      projects,
-      settings.defaultThreadEnvMode,
-    ],
+    [activeDraftThread, activeThread, defaultProjectRef, handleNewThread, projects],
   );
 
   const allThreadItems = useMemo(
@@ -682,7 +664,7 @@ function OpenCommandPaletteDialog(props: {
         threads,
         ...(activeThreadId ? { activeThreadId } : {}),
         projectTitleById,
-        sortOrder: settings.sidebarThreadSortOrder,
+        sortOrder: clientSettings.sidebarThreadSortOrder,
         icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
         renderLeadingContent: (thread) => <ThreadRowLeadingStatus thread={thread} />,
         renderTrailingContent: (thread) => <ThreadRowTrailingStatus thread={thread} />,
@@ -693,7 +675,7 @@ function OpenCommandPaletteDialog(props: {
           });
         },
       }),
-    [activeThreadId, navigate, projectTitleById, settings.sidebarThreadSortOrder, threads],
+    [activeThreadId, clientSettings.sidebarThreadSortOrder, navigate, projectTitleById, threads],
   );
   const recentThreadItems = allThreadItems.slice(0, RECENT_THREAD_LIMIT);
 
@@ -965,7 +947,6 @@ function OpenCommandPaletteDialog(props: {
             activeDraftThread,
             activeThread: activeThread ?? undefined,
             defaultProjectRef,
-            defaultThreadEnvMode: settings.defaultThreadEnvMode,
             handleNewThread,
           });
         },
@@ -1082,7 +1063,7 @@ function OpenCommandPaletteDialog(props: {
         const latestThread = getLatestThreadForProject(
           threads.filter((thread) => thread.environmentId === existing.environmentId),
           existing.id,
-          settings.sidebarThreadSortOrder,
+          clientSettings.sidebarThreadSortOrder,
         );
         if (latestThread) {
           await navigate({
@@ -1093,9 +1074,7 @@ function OpenCommandPaletteDialog(props: {
           });
         } else {
           const navigationResult = await settlePromise(() =>
-            handleNewThread(scopeProjectRef(existing.environmentId, existing.id), {
-              envMode: settings.defaultThreadEnvMode,
-            }),
+            handleNewThread(scopeProjectRef(existing.environmentId, existing.id)),
           );
           if (navigationResult._tag === "Failure") {
             const error = squashAtomCommandFailure(navigationResult);
@@ -1142,9 +1121,7 @@ function OpenCommandPaletteDialog(props: {
       }
 
       const navigationResult = await settlePromise(() =>
-        handleNewThread(scopeProjectRef(browseEnvironmentId, projectId), {
-          envMode: settings.defaultThreadEnvMode,
-        }),
+        handleNewThread(scopeProjectRef(browseEnvironmentId, projectId)),
       );
       if (navigationResult._tag === "Failure") {
         const error = squashAtomCommandFailure(navigationResult);
@@ -1168,8 +1145,7 @@ function OpenCommandPaletteDialog(props: {
       navigate,
       projects,
       setOpen,
-      settings.defaultThreadEnvMode,
-      settings.sidebarThreadSortOrder,
+      clientSettings.sidebarThreadSortOrder,
       threads,
     ],
   );

@@ -9,11 +9,13 @@ import * as SourceControlProviderDiscovery from "./SourceControlProviderDiscover
 
 function providerError(
   operation: string,
+  cwd: string,
   cause: GiteaCli.GiteaCliError,
 ): SourceControlProviderError {
   return new SourceControlProviderError({
     provider: "gitea",
     operation,
+    cwd,
     detail: cause.detail,
     cause,
   });
@@ -129,12 +131,12 @@ export const make = Effect.fn("makeGiteaSourceControlProvider")(function* () {
         })
         .pipe(
           Effect.map((items) => items.map(toChangeRequest)),
-          Effect.mapError((error) => providerError("listChangeRequests", error)),
+          Effect.mapError((error) => providerError("listChangeRequests", input.cwd, error)),
         ),
     getChangeRequest: (input) =>
       gitea.getPullRequest(input).pipe(
         Effect.map(toChangeRequest),
-        Effect.mapError((error) => providerError("getChangeRequest", error)),
+        Effect.mapError((error) => providerError("getChangeRequest", input.cwd, error)),
       ),
     createChangeRequest: (input) =>
       gitea
@@ -146,23 +148,25 @@ export const make = Effect.fn("makeGiteaSourceControlProvider")(function* () {
           title: input.title,
           bodyFile: input.bodyFile,
         })
-        .pipe(Effect.mapError((error) => providerError("createChangeRequest", error))),
+        .pipe(Effect.mapError((error) => providerError("createChangeRequest", input.cwd, error))),
     getRepositoryCloneUrls: (input) =>
       gitea
         .getRepositoryCloneUrls(input)
-        .pipe(Effect.mapError((error) => providerError("getRepositoryCloneUrls", error))),
+        .pipe(
+          Effect.mapError((error) => providerError("getRepositoryCloneUrls", input.cwd, error)),
+        ),
     createRepository: (input) =>
       gitea
         .createRepository(input)
-        .pipe(Effect.mapError((error) => providerError("createRepository", error))),
+        .pipe(Effect.mapError((error) => providerError("createRepository", input.cwd, error))),
     getDefaultBranch: (input) =>
       gitea
         .getDefaultBranch(input)
-        .pipe(Effect.mapError((error) => providerError("getDefaultBranch", error))),
+        .pipe(Effect.mapError((error) => providerError("getDefaultBranch", input.cwd, error))),
     checkoutChangeRequest: (input) =>
       gitea
         .checkoutPullRequest(input)
-        .pipe(Effect.mapError((error) => providerError("checkoutChangeRequest", error))),
+        .pipe(Effect.mapError((error) => providerError("checkoutChangeRequest", input.cwd, error))),
   });
 });
 

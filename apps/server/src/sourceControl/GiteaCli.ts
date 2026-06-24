@@ -96,7 +96,7 @@ export interface GiteaCliShape {
 }
 
 export class GiteaCli extends Context.Service<GiteaCli, GiteaCliShape>()(
-  "t3/source-control/GiteaCli",
+  "t3/sourceControl/GiteaCli",
 ) {}
 
 function errorText(error: VcsError | unknown): string {
