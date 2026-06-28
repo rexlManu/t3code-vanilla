@@ -24,6 +24,29 @@ If a tradeoff is required, choose correctness and robustness over short-term con
 
 Long term maintainability is a core priority. If you add new functionality, first check if there is shared logic that can be extracted to a separate module. Duplicate logic across multiple files is a code smell and should be avoided. Don't be afraid to change existing code. Don't take shortcuts by just adding local logic to solve a problem.
 
+## Fork Maintenance
+
+This repository is `rexlManu/t3code-vanilla`, a personal fork of upstream `pingdotgg/t3code`.
+
+- `main` must mirror upstream `pingdotgg/t3code/main` exactly. Do not put custom commits on `main`.
+- `custom/main` is the working fork branch: upstream `main` plus fork-only commits.
+- New fork features should target `custom/main` and are not intended for upstream submission unless the user says otherwise.
+- To bring the fork current:
+  1. Start from a clean worktree on `custom/main`.
+  2. Fetch both remotes: `git fetch upstream main && git fetch origin main custom/main`.
+  3. Verify fork `main` has no fork-only commits: `git rev-list --left-right --count upstream/main...origin/main`. The right side must be `0`.
+  4. If upstream is ahead, fast-forward fork `main` directly: `git push origin refs/remotes/upstream/main:refs/heads/main`.
+  5. Update local refs: `git fetch origin main custom/main`.
+  6. Merge upstream mirror into the fork branch: `git merge --no-ff origin/main`.
+  7. Resolve conflicts by keeping upstream structure/API changes and reapplying fork-only behavior intentionally.
+  8. Run the required checks from this AGENTS.md.
+  9. Push directly to `origin/custom/main` when the user asks for direct updates; otherwise open a PR against `custom/main`.
+- After the merge, verify:
+  - `git rev-list --left-right --count upstream/main...origin/main` is `0 0`.
+  - `git merge-base --is-ancestor origin/main origin/custom/main` succeeds.
+- The sync workflow `.github/workflows/sync-upstream.yml` keeps fork `main` aligned with upstream using GitHub's fork-sync API. If it fails on workflow-file updates, do not switch back to a direct Actions `git push`; use an appropriately permissioned token or the GitHub API path.
+- The local desktop launcher is managed in `/home/emmanuel/dotfiles/.local/bin/t3code` and runs this checkout with `T3CODE_STATE_PROFILE=dev`. Keep `/home/emmanuel/workspace/t3code` on `custom/main` and dependency links current for that launcher.
+
 ## Package Roles
 
 - `apps/server`: Node.js WebSocket server. Wraps Codex app-server (JSON-RPC over stdio), serves the React web app, and manages provider sessions.
