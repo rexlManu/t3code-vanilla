@@ -197,6 +197,22 @@ it.layer(testLayer)("checkOpenCodeProviderStatus", (it) => {
     }),
   );
 
+  it.effect(
+    "marks OpenCode ready when custom models are configured without connected upstreams",
+    () =>
+      Effect.gen(function* () {
+        const snapshot = yield* checkOpenCodeProviderStatus(
+          makeOpenCodeSettings({ customModels: ["openai/gpt-5"] }),
+          process.cwd(),
+        );
+
+        NodeAssert.equal(snapshot.status, "ready");
+        NodeAssert.equal(snapshot.auth.status, "authenticated");
+        NodeAssert.ok(snapshot.models.some((entry) => entry.slug === "openai/gpt-5"));
+        NodeAssert.equal(snapshot.message, "OpenCode is available with 1 configured model.");
+      }),
+  );
+
   it.effect("closes the local OpenCode server scope after provider refresh", () =>
     Effect.gen(function* () {
       yield* checkOpenCodeProviderStatus(makeOpenCodeSettings(), process.cwd());

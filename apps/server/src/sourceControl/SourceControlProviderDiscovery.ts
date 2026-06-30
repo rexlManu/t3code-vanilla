@@ -62,10 +62,20 @@ interface DiscoveryProbeResult {
   readonly detail: Option.Option<string>;
 }
 
+const ESCAPE_CHARACTER = String.fromCharCode(27);
+const ANSI_CONTROL_SEQUENCE_PATTERN = new RegExp(
+  `${ESCAPE_CHARACTER}(?:[@-Z\\\\-_]|\\[[0-?]*[ -/]*[@-~])`,
+  "gu",
+);
+
+export function sanitizeCliLine(text: string): string {
+  return text.replace(ANSI_CONTROL_SEQUENCE_PATTERN, "").replace(/\s+/gu, " ").trim();
+}
+
 export function firstNonEmptyLine(text: string): Option.Option<string> {
   const line = text
     .split(/\r?\n/)
-    .map((entry) => entry.trim())
+    .map(sanitizeCliLine)
     .find((entry) => entry.length > 0);
   return line === undefined ? Option.none() : Option.some(line);
 }
