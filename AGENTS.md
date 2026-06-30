@@ -28,6 +28,7 @@ Long term maintainability is a core priority. If you add new functionality, firs
 
 This repository is `rexlManu/t3code-vanilla`, a personal fork of upstream `pingdotgg/t3code`.
 
+- The shorthand name for this whole maintenance flow is **Fork Rollup**. If the user asks to "run Fork Rollup", do the upstream `main` sync plus `custom/main` merge described here.
 - `main` must mirror upstream `pingdotgg/t3code/main` exactly. Do not put custom commits on `main`.
 - `custom/main` is the working fork branch: upstream `main` plus fork-only commits.
 - New fork features should target `custom/main` and are not intended for upstream submission unless the user says otherwise.
