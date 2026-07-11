@@ -35,7 +35,7 @@ export class ThreadArchiveBlockedError extends Schema.TaggedErrorClass<ThreadArc
   },
 ) {
   override get message(): string {
-    return "Cannot archive a running thread.";
+    return "Cannot archive a thread while a turn is pending or running.";
   }
 }
 
@@ -93,7 +93,12 @@ export function useThreadActions() {
       const resolved = resolveThreadTarget(target);
       if (!resolved) return AsyncResult.success(undefined);
       const { thread, threadRef } = resolved;
-      if (thread.session?.status === "running" && thread.session.activeTurnId != null) {
+      const hasActiveSessionTurn =
+        thread.session?.activeTurnId != null ||
+        thread.session?.status === "starting" ||
+        thread.session?.status === "running";
+      const hasUnsettledLatestTurn = thread.latestTurn?.state === "running";
+      if (hasActiveSessionTurn || hasUnsettledLatestTurn) {
         return AsyncResult.failure(
           Cause.fail(
             new ThreadArchiveBlockedError({

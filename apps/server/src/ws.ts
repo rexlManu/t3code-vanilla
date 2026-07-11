@@ -885,6 +885,37 @@ const makeWsRpcLayer = (
       const dispatchNormalizedCommand = (
         normalizedCommand: OrchestrationCommand,
       ): Effect.Effect<{ readonly sequence: number }, OrchestrationDispatchCommandError> => {
+        const ensureArchiveable =
+          normalizedCommand.type === "thread.archive"
+            ? projectionSnapshotQuery.getThreadDetailById(normalizedCommand.threadId).pipe(
+                Effect.flatMap((threadOption) => {
+                  if (Option.isNone(threadOption)) {
+                    return Effect.void;
+                  }
+                  const thread = threadOption.value;
+                  const latestMessage = thread.messages.at(-1);
+                  const hasActiveSessionTurn =
+                    thread.session?.activeTurnId != null ||
+                    thread.session?.status === "starting" ||
+                    thread.session?.status === "running";
+                  const hasUnsettledLatestTurn = thread.latestTurn?.state === "running";
+                  const hasPendingUserTurn =
+                    latestMessage?.role === "user" &&
+                    (thread.latestTurn === null || thread.latestTurn.completedAt === null);
+                  return hasActiveSessionTurn || hasUnsettledLatestTurn || hasPendingUserTurn
+                    ? Effect.fail(
+                        new OrchestrationDispatchCommandError({
+                          message: "Cannot archive a thread while a turn is pending or running.",
+                        }),
+                      )
+                    : Effect.void;
+                }),
+                Effect.mapError((cause) =>
+                  toDispatchCommandError(cause, "Failed to verify thread archive state."),
+                ),
+              )
+            : Effect.void;
+
         const dispatchEffect =
           normalizedCommand.type === "thread.turn.start" && normalizedCommand.bootstrap
             ? dispatchBootstrapTurnStart(normalizedCommand)
@@ -897,7 +928,7 @@ const makeWsRpcLayer = (
                 );
 
         return startup
-          .enqueueCommand(dispatchEffect)
+          .enqueueCommand(ensureArchiveable.pipe(Effect.flatMap(() => dispatchEffect)))
           .pipe(
             Effect.mapError((cause) =>
               toDispatchCommandError(cause, "Failed to dispatch orchestration command"),
