@@ -5,6 +5,10 @@ import { SourceControlProviderError, type ChangeRequest } from "@t3tools/contrac
 
 import * as GiteaCli from "./GiteaCli.ts";
 import * as SourceControlProvider from "./SourceControlProvider.ts";
+import {
+  combinedAuthOutput,
+  type SourceControlUnknownRemoteRefinementInput,
+} from "./SourceControlProviderDiscovery.ts";
 import * as SourceControlProviderDiscovery from "./SourceControlProviderDiscovery.ts";
 
 function providerError(
@@ -43,9 +47,14 @@ function toChangeRequest(summary: GiteaCli.GiteaPullRequestSummary): ChangeReque
   };
 }
 
-function parseTeaLoginListTable(
-  output: string,
-): { readonly account: string; readonly host: string } | null {
+interface TeaLoginEntry {
+  readonly account: string;
+  readonly host: string;
+  readonly sshHost: string | undefined;
+}
+
+function parseTeaLoginListEntries(output: string): ReadonlyArray<TeaLoginEntry> {
+  const entries: Array<TeaLoginEntry> = [];
   for (const line of output.split(/\r?\n/u)) {
     const cells = line
       .split("│")
@@ -59,22 +68,23 @@ function parseTeaLoginListTable(
     if (!account || account === "USER") {
       continue;
     }
+    const sshHost = cells[2];
 
     try {
-      return { account, host: new URL(cells[1]).host };
+      entries.push({ account, host: new URL(cells[1]).host, sshHost });
     } catch {
-      const host = cells[2];
-      if (host) {
-        return { account, host };
+      if (sshHost) {
+        entries.push({ account, host: sshHost, sshHost });
       }
     }
   }
-  return null;
+  return entries;
 }
 
 function parseGiteaAuth(input: SourceControlProviderDiscovery.SourceControlAuthProbeInput) {
   const output = SourceControlProviderDiscovery.combinedAuthOutput(input);
-  const tableAuth = parseTeaLoginListTable(output);
+  const loginEntries = parseTeaLoginListEntries(output);
+  const tableAuth = loginEntries[0];
   const account =
     tableAuth?.account ??
     SourceControlProviderDiscovery.matchFirst(output, [
@@ -104,6 +114,30 @@ function parseGiteaAuth(input: SourceControlProviderDiscovery.SourceControlAuthP
   });
 }
 
+function stripPort(host: string): string {
+  return host.replace(/:\d+$/u, "");
+}
+
+function refineUnknownGiteaRemote(input: SourceControlUnknownRemoteRefinementInput) {
+  const host = stripPort(input.context.provider.name.toLowerCase());
+  const loginEntries = parseTeaLoginListEntries(combinedAuthOutput(input.auth));
+  const authenticated = loginEntries.some((entry) =>
+    [entry.host, entry.sshHost].some(
+      (entryHost) => entryHost !== undefined && stripPort(entryHost.toLowerCase()) === host,
+    ),
+  );
+
+  if (!authenticated) {
+    return null;
+  }
+
+  return {
+    kind: "gitea" as const,
+    name: "Gitea Self-Hosted",
+    baseUrl: input.context.provider.baseUrl,
+  };
+}
+
 export const discovery = {
   type: "cli",
   kind: "gitea",
@@ -112,6 +146,7 @@ export const discovery = {
   versionArgs: ["--version"],
   authArgs: ["login", "list"],
   parseAuth: parseGiteaAuth,
+  refineUnknownRemote: refineUnknownGiteaRemote,
   installHint:
     "Install Tea CLI (`tea`) from https://gitea.com/gitea/tea or your package manager, then run `tea login add`.",
 } satisfies SourceControlProviderDiscovery.SourceControlCliDiscoverySpec;
