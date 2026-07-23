@@ -110,6 +110,15 @@ const EnvServerConfig = Config.all({
     Config.map(Option.getOrUndefined),
   ),
   devUrl: Config.url("VITE_DEV_SERVER_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  devAllowedOrigins: Config.string("T3CODE_DEV_ALLOWED_ORIGINS").pipe(
+    Config.withDefault(""),
+    Config.map((value) =>
+      value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0),
+    ),
+  ),
   noBrowser: Config.boolean("T3CODE_NO_BROWSER").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),
@@ -374,6 +383,7 @@ export const resolveServerConfig = (
       host,
       staticDir,
       devUrl,
+      devAllowedOrigins: env.devAllowedOrigins,
       noBrowser,
       startupPresentation,
       desktopBootstrapToken,
