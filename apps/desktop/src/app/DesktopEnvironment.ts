@@ -103,10 +103,11 @@ function resolveDesktopAppBranding(input: {
 
 function resolveStateProfile(input: {
   readonly configuredProfile: Option.Option<string>;
+  readonly baseDirIsExplicit: boolean;
   readonly isDevelopment: boolean;
 }): string {
   return Option.getOrElse(input.configuredProfile, () =>
-    input.isDevelopment ? "dev" : "userdata",
+    input.isDevelopment && !input.baseDirIsExplicit ? "dev" : "userdata",
   );
 }
 
@@ -156,7 +157,8 @@ const make = Effect.fn("desktop.environment.make")(function* (
       : input.platform === "darwin"
         ? path.join(homeDirectory, "Library", "Application Support")
         : Option.getOrElse(config.xdgConfigHome, () => path.join(homeDirectory, ".config"));
-  const baseDir = Option.getOrElse(config.t3Home, () => path.join(homeDirectory, ".t3"));
+  const configuredBaseDir = config.t3Home;
+  const baseDir = Option.getOrElse(configuredBaseDir, () => path.join(homeDirectory, ".t3"));
   const rootDir = path.resolve(input.dirname, "../../..");
   const appRoot = input.isPackaged ? input.appPath : rootDir;
   const branding = resolveDesktopAppBranding({
@@ -168,6 +170,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     baseDir,
     resolveStateProfile({
       configuredProfile: config.stateProfile,
+      baseDirIsExplicit: Option.isSome(configuredBaseDir),
       isDevelopment,
     }),
   );
