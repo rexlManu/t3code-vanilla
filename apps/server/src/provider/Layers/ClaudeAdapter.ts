@@ -340,6 +340,7 @@ function selectedClaudeContextWindow(
   modelSelection: ModelSelection | undefined,
 ): number | undefined {
   switch (modelSelection?.model) {
+    case "claude-opus-5":
     case "claude-opus-4-8":
     case "claude-opus-4-7":
       // Always 1M at the API; these models expose no contextWindow option.
@@ -2794,9 +2795,18 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           yield* emitRuntimeWarning(context, message.text, message);
         }
         return;
+      case "informational":
+        if (message.level === "warning" || message.level === "suggestion") {
+          yield* emitRuntimeWarning(context, message.content, message);
+        }
+        return;
       // Inner protocol/UX details with no T3 surface today — consumed
       // deliberately so they don't masquerade as unknown-subtype warnings.
+      case "background_tasks_changed":
+      case "control_request_progress":
       case "model_refusal_fallback":
+      case "model_refusal_no_fallback":
+      case "worker_shutting_down":
       case "local_command_output":
       case "plugin_install":
       case "commands_changed":
@@ -2946,6 +2956,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         return;
       // Composer prompt suggestions have no T3 surface; consumed deliberately.
       case "prompt_suggestion":
+      // T3 owns the durable transcript and thread lifecycle; a Claude-side
+      // conversation reset must not replace the current T3 thread.
+      case "conversation_reset":
         return;
       default: {
         // Exhaustiveness guard (see handleSystemMessage): new SDK top-level
