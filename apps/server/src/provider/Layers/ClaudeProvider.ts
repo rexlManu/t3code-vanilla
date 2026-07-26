@@ -56,29 +56,6 @@ const MINIMUM_CLAUDE_FABLE_5_VERSION = "2.1.169";
 const MINIMUM_CLAUDE_OPUS_4_8_VERSION = "2.1.154";
 const MINIMUM_CLAUDE_OPUS_4_7_VERSION = "2.1.111";
 
-const CLAUDE_MODERN_OPUS_CAPABILITIES = createModelCapabilities({
-  optionDescriptors: [
-    buildSelectOptionDescriptor({
-      id: "effort",
-      label: "Reasoning",
-      options: [
-        { value: "low", label: "Low" },
-        { value: "medium", label: "Medium" },
-        { value: "high", label: "High", isDefault: true },
-        { value: "xhigh", label: "Extra High" },
-        { value: "max", label: "Max" },
-        { value: "ultracode", label: "Ultracode" },
-        { value: "ultrathink", label: "Ultrathink" },
-      ],
-      promptInjectedValues: ["ultrathink"],
-    }),
-    buildBooleanOptionDescriptor({
-      id: "fastMode",
-      label: "Fast Mode",
-    }),
-  ],
-});
-
 const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
   {
     slug: "claude-fable-5",
@@ -115,13 +92,64 @@ const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
     slug: "claude-opus-5",
     name: "Claude Opus 5",
     isCustom: false,
-    capabilities: CLAUDE_MODERN_OPUS_CAPABILITIES,
+    capabilities: createModelCapabilities({
+      optionDescriptors: [
+        buildSelectOptionDescriptor({
+          id: "effort",
+          label: "Reasoning",
+          options: [
+            { value: "low", label: "Low" },
+            { value: "medium", label: "Medium" },
+            { value: "high", label: "High", isDefault: true },
+            { value: "xhigh", label: "Extra High" },
+            { value: "max", label: "Max" },
+            { value: "ultracode", label: "Ultracode" },
+            { value: "ultrathink", label: "Ultrathink" },
+          ],
+          promptInjectedValues: ["ultrathink"],
+        }),
+        buildBooleanOptionDescriptor({
+          id: "fastMode",
+          label: "Fast Mode",
+        }),
+        buildSelectOptionDescriptor({
+          id: "contextWindow",
+          label: "Context Window",
+          // Claude Code selects the 1M variant explicitly (`claude-opus-5[1m]`).
+          options: [
+            { value: "200k", label: "200k" },
+            { value: "1m", label: "1M", isDefault: true },
+          ],
+        }),
+      ],
+    }),
   },
   {
     slug: "claude-opus-4-8",
     name: "Claude Opus 4.8",
     isCustom: false,
-    capabilities: CLAUDE_MODERN_OPUS_CAPABILITIES,
+    capabilities: createModelCapabilities({
+      optionDescriptors: [
+        buildSelectOptionDescriptor({
+          id: "effort",
+          label: "Reasoning",
+          options: [
+            { value: "low", label: "Low" },
+            { value: "medium", label: "Medium" },
+            { value: "high", label: "High", isDefault: true },
+            { value: "xhigh", label: "Extra High" },
+            { value: "max", label: "Max" },
+            { value: "ultracode", label: "Ultracode" },
+            { value: "ultrathink", label: "Ultrathink" },
+          ],
+          promptInjectedValues: ["ultrathink"],
+        }),
+        buildBooleanOptionDescriptor({
+          id: "fastMode",
+          label: "Fast Mode",
+        }),
+      ],
+    }),
   },
   {
     slug: "claude-opus-4-7",

@@ -530,7 +530,7 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
-  it.effect("forwards Claude Opus 5 model options to the SDK", () => {
+  it.effect("preserves xhigh effort for Claude Opus 5", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
@@ -540,18 +540,13 @@ describe("ClaudeAdapterLive", () => {
         modelSelection: createModelSelection(
           ProviderInstanceId.make("claudeAgent"),
           "claude-opus-5",
-          [
-            { id: "effort", value: "xhigh" },
-            { id: "fastMode", value: true },
-          ],
+          [{ id: "effort", value: "xhigh" }],
         ),
         runtimeMode: "full-access",
       });
 
       const createInput = harness.getLastCreateQueryInput();
-      assert.equal(createInput?.options.model, "claude-opus-5");
       assert.equal(createInput?.options.effort, "xhigh");
-      assert.deepEqual(createInput?.options.settings, { fastMode: true });
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
@@ -1758,7 +1753,7 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
-  it.effect("consumes SDK-internal system messages without warning rows", () => {
+  it.effect("consumes undeclared and UX-internal system subtypes without warning rows", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
@@ -1773,8 +1768,9 @@ describe("ClaudeAdapterLive", () => {
         runtimeMode: "full-access",
       });
 
-      // SDK-internal subtypes and top-level types consumed silently: none may
-      // surface as unknown-subtype warnings.
+      // Undeclared wire-only roster snapshot + every typed UX-internal
+      // subtype and top-level type consumed silently: none may surface as
+      // unknown-subtype warnings.
       for (const message of [
         {
           type: "system",
@@ -1793,41 +1789,11 @@ describe("ClaudeAdapterLive", () => {
         },
         { type: "system", subtype: "commands_changed", session_id: "session", uuid: "cc" },
         { type: "system", subtype: "model_refusal_fallback", session_id: "session", uuid: "mrf" },
-        {
-          type: "system",
-          subtype: "model_refusal_no_fallback",
-          original_model: "claude-opus-5",
-          request_id: null,
-          content: "Request refused",
-          session_id: "session",
-          uuid: "mrnf",
-        },
-        {
-          type: "system",
-          subtype: "control_request_progress",
-          request_id: "side-question-1",
-          status: "started",
-          session_id: "session",
-          uuid: "crp",
-        },
-        {
-          type: "system",
-          subtype: "worker_shutting_down",
-          reason: "host_exit",
-          session_id: "session",
-          uuid: "wsd",
-        },
         { type: "system", subtype: "local_command_output", session_id: "session", uuid: "lco" },
         { type: "system", subtype: "plugin_install", session_id: "session", uuid: "pi" },
         { type: "system", subtype: "memory_recall", session_id: "session", uuid: "mr" },
         { type: "system", subtype: "elicitation_complete", session_id: "session", uuid: "ec" },
         { type: "prompt_suggestion", suggestion: "try this", session_id: "session", uuid: "ps" },
-        {
-          type: "conversation_reset",
-          new_conversation_id: "new-conversation",
-          session_id: "session",
-          uuid: "reset",
-        },
         {
           type: "system",
           subtype: "notification",
@@ -1849,14 +1815,6 @@ describe("ClaudeAdapterLive", () => {
         priority: "high",
         session_id: "session",
         uuid: "notif-high",
-      } as unknown as SDKMessage);
-      harness.query.emit({
-        type: "system",
-        subtype: "informational",
-        content: "Hook suggests checking the generated file",
-        level: "suggestion",
-        session_id: "session",
-        uuid: "info-suggestion",
       } as unknown as SDKMessage);
       // session_state_changed maps to the matching session states.
       for (const [state, uuid] of [
@@ -1888,10 +1846,10 @@ describe("ClaudeAdapterLive", () => {
       yield* Effect.yieldNow;
 
       const warnings = runtimeEvents.filter((event) => event.type === "runtime.warning");
-      // Only explicitly prominent user-facing messages become warning rows.
+      // Exactly one warning: the high-priority notification. Nothing else.
       assert.deepEqual(
         warnings.map((event) => event.payload.message),
-        ["context window nearly full", "Hook suggests checking the generated file"],
+        ["context window nearly full"],
       );
       const sessionStates = runtimeEvents
         .filter((event) => event.type === "session.state.changed")
@@ -2874,7 +2832,6 @@ describe("ClaudeAdapterLive", () => {
             },
           ],
           toolUseID: "tool-use-1",
-          requestId: "permission-request-1",
         },
       );
 
@@ -2951,7 +2908,6 @@ describe("ClaudeAdapterLive", () => {
         {
           signal: new AbortController().signal,
           toolUseID: "tool-agent-1",
-          requestId: "permission-request-agent-1",
         },
       );
 
@@ -2976,7 +2932,6 @@ describe("ClaudeAdapterLive", () => {
         {
           signal: new AbortController().signal,
           toolUseID: "tool-grep-approval-1",
-          requestId: "permission-request-grep-1",
         },
       );
 
@@ -3514,7 +3469,6 @@ describe("ClaudeAdapterLive", () => {
         {
           signal: new AbortController().signal,
           toolUseID: "tool-exit-1",
-          requestId: "permission-request-exit-1",
         },
       );
 
@@ -3681,7 +3635,6 @@ describe("ClaudeAdapterLive", () => {
       const permissionPromise = canUseTool("AskUserQuestion", askInput, {
         signal: new AbortController().signal,
         toolUseID: "tool-ask-1",
-        requestId: "permission-request-ask-1",
       });
 
       // The adapter should emit a user-input.requested event.
@@ -3808,7 +3761,6 @@ describe("ClaudeAdapterLive", () => {
       const permissionPromise = canUseTool("AskUserQuestion", askInput, {
         signal: new AbortController().signal,
         toolUseID: "tool-ask-2",
-        requestId: "permission-request-ask-2",
       });
 
       // Should still get user-input.requested even in full-access mode.
@@ -3874,7 +3826,6 @@ describe("ClaudeAdapterLive", () => {
         {
           signal: controller.signal,
           toolUseID: "tool-ask-abort",
-          requestId: "permission-request-ask-abort",
         },
       );
 
