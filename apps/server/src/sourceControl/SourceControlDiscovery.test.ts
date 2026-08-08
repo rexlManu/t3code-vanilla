@@ -152,6 +152,12 @@ it.effect("reports implemented tools separately from locally available executabl
           account: Option.none(),
         },
         {
+          kind: "gitea",
+          status: "missing",
+          auth: "unknown",
+          account: Option.none(),
+        },
+        {
           kind: "azure-devops",
           status: "missing",
           auth: "unknown",
@@ -201,6 +207,14 @@ it.effect("probes provider authentication without exposing token details", () =>
         return Effect.succeed(
           processOutput(`gitlab.com
 Logged in to gitlab.com as gitlab-user
+`),
+        );
+      }
+      if (input.command === "tea" && input.args.join(" ") === "login list") {
+        return Effect.succeed(
+          processOutput(`
+│ NAME  │ URL                       │ SSH HOST                  │ USER       │ DEFAULT │
+│ gitea │ https://gitea.example.com │ ssh.gitea.example.com     │ gitea-user │ true    │
 `),
         );
       }
@@ -265,6 +279,12 @@ Logged in to gitlab.com as gitlab-user
           kind: "gitlab",
           auth: "authenticated",
           account: Option.some("gitlab-user"),
+          detail: Option.none(),
+        },
+        {
+          kind: "gitea",
+          auth: "authenticated",
+          account: Option.some("gitea-user"),
           detail: Option.none(),
         },
         {
