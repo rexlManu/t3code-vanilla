@@ -1,6 +1,6 @@
 import { GitPullRequestIcon } from "lucide-react";
 import type { ElementType } from "react";
-import type { SourceControlProviderInfo } from "@t3tools/contracts";
+import type { SourceControlProviderInfo, SourceControlProviderKind } from "@t3tools/contracts";
 export {
   DEFAULT_CHANGE_REQUEST_TERMINOLOGY,
   formatChangeRequestAction,
@@ -71,4 +71,11 @@ export function getSourceControlPresentation(
         Icon: GitPullRequestIcon,
       };
   }
+}
+
+/** For surfaces that know only the host kind, such as a change request row or filter. */
+export function getSourceControlPresentationForKind(
+  kind: SourceControlProviderKind,
+): SourceControlPresentation {
+  return getSourceControlPresentation({ kind, name: "", baseUrl: "" });
 }
