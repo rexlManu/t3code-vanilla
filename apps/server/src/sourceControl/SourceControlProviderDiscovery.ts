@@ -33,6 +33,7 @@ export type SourceControlCliDiscoverySpec = SourceControlDiscoverySpecBase & {
   readonly executable: string;
   readonly versionArgs: ReadonlyArray<string>;
   readonly authArgs: ReadonlyArray<string>;
+  readonly probeTimeoutMs?: number;
   readonly parseAuth: (input: SourceControlAuthProbeInput) => SourceControlProviderAuth;
   readonly refineUnknownRemote?: (
     input: SourceControlUnknownRemoteRefinementInput,
@@ -51,6 +52,14 @@ export type SourceControlProviderDiscoverySpec =
 type SourceControlCliRemoteRefinementSpec = SourceControlCliDiscoverySpec & {
   readonly refineUnknownRemote: NonNullable<SourceControlCliDiscoverySpec["refineUnknownRemote"]>;
 };
+
+// Most provider CLIs answer `--version` in well under a second, so a short budget keeps
+// discovery snappy. Specs whose CLI is known to be slower can raise it via probeTimeoutMs.
+const DEFAULT_PROBE_TIMEOUT_MS = 5_000;
+
+function probeTimeoutMs(spec: SourceControlCliDiscoverySpec): number {
+  return spec.probeTimeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
+}
 
 interface DiscoveryProbeResult {
   readonly kind: SourceControlProviderKind;
@@ -177,7 +186,7 @@ function probeCli(input: {
       command: input.spec.executable,
       args: input.spec.versionArgs,
       cwd: input.cwd,
-      timeoutMs: 5_000,
+      timeoutMs: probeTimeoutMs(input.spec),
       maxOutputBytes: 8_000,
       appendTruncationMarker: true,
     })
@@ -254,7 +263,7 @@ export function probeSourceControlProvider(input: {
           args: spec.authArgs,
           cwd: input.cwd,
           allowNonZeroExit: true,
-          timeoutMs: 5_000,
+          timeoutMs: probeTimeoutMs(spec),
           maxOutputBytes: 8_000,
           appendTruncationMarker: true,
         })
@@ -297,7 +306,7 @@ export const refineUnknownRemoteProvider = Effect.fn("refineUnknownRemoteProvide
           args: spec.authArgs,
           cwd: input.cwd,
           allowNonZeroExit: true,
-          timeoutMs: 5_000,
+          timeoutMs: probeTimeoutMs(spec),
           maxOutputBytes: 8_000,
           appendTruncationMarker: true,
         })
