@@ -915,6 +915,34 @@ describe("workEntryIndicatesToolFailure", () => {
 });
 
 describe("deriveWorkLogEntries", () => {
+  it("keeps the latest task progress without emitting plan-update log entries", () => {
+    const activities = [
+      makeActivity({ id: "before", kind: "tool.completed", summary: "Read files", sequence: 0 }),
+      makeActivity({
+        id: "plan-1",
+        kind: "turn.plan.updated",
+        summary: "Plan updated",
+        turnId: "turn-1",
+        sequence: 1,
+        payload: { plan: [{ step: "Verify the composer", status: "inProgress" }] },
+      }),
+      makeActivity({
+        id: "plan-2",
+        kind: "turn.plan.updated",
+        summary: "Plan updated",
+        turnId: "turn-1",
+        sequence: 2,
+        payload: { plan: [{ step: "Verify the composer", status: "completed" }] },
+      }),
+      makeActivity({ id: "after", kind: "tool.completed", summary: "Ran tests", sequence: 3 }),
+    ];
+    expect(deriveWorkLogEntries(activities).map((entry) => entry.id)).toEqual(["before", "after"]);
+    expect(deriveTurnPlans(activities)).toHaveLength(1);
+    expect(deriveTurnPlans(activities)[0]?.plan.steps).toMatchObject([
+      { step: "Verify the composer", status: "completed" },
+    ]);
+  });
+
   it("omits tool started entries and keeps completed entries", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
@@ -2281,7 +2309,7 @@ describe("session activity performance", () => {
     expect(appendedEntries[1]).toBe(initialEntries[1]);
   });
 
-  it("updates 20,000 ordered tool activities within 100 ms", () => {
+  it("reuses entries when appending to 20,000 ordered tool activities", () => {
     const activities = Array.from({ length: 20_000 }, (_, index) =>
       makeActivity({
         id: `benchmark-tool-${index}`,
@@ -2299,7 +2327,8 @@ describe("session activity performance", () => {
         },
       }),
     );
-    deriveWorkLogEntries(activities);
+    const initialEntries = deriveWorkLogEntries(activities);
+    expect(initialEntries).toHaveLength(20_000);
     const updatedActivities = [
       ...activities,
       makeActivity({
@@ -2316,8 +2345,13 @@ describe("session activity performance", () => {
       }),
     ];
 
-    const startedAt = performance.now();
-    expect(deriveWorkLogEntries(updatedActivities)).toHaveLength(20_001);
-    expect(performance.now() - startedAt).toBeLessThan(100);
+    const updatedEntries = deriveWorkLogEntries(updatedActivities);
+    expect(updatedEntries).toHaveLength(20_001);
+    expect(initialEntries.every((entry, index) => updatedEntries[index] === entry)).toBe(true);
+    expect(updatedEntries.at(-1)).toMatchObject({
+      id: "benchmark-tool-appended",
+      command: "git diff",
+      toolLifecycleStatus: "completed",
+    });
   });
 });
