@@ -20,7 +20,7 @@ import * as VcsProcess from "../vcs/VcsProcess.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
-export class GiteaCliError extends Schema.TaggedErrorClass<GiteaCliError>()("GiteaCliError", {
+export class GiteaCliError extends Schema.TaggedError<GiteaCliError>()("GiteaCliError", {
   operation: Schema.String,
   detail: Schema.String,
   cause: Schema.optional(Schema.Defect()),
