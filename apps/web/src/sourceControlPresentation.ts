@@ -1,4 +1,3 @@
-import { GitPullRequestIcon } from "lucide-react";
 import type { ElementType } from "react";
 import type { SourceControlProviderInfo, SourceControlProviderKind } from "@t3tools/contracts";
 export {
@@ -16,10 +15,12 @@ import {
 import {
   AzureDevOpsIcon,
   BitbucketIcon,
+  ForgejoIcon,
   GiteaIcon,
   GitHubIcon,
   GitLabIcon,
 } from "./components/Icons";
+import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 
 export interface SourceControlPresentation {
   readonly providerName: string;
@@ -37,6 +38,12 @@ export function getSourceControlPresentation(
         providerName: provider?.name || presentation.providerName,
         terminology: getChangeRequestTerminology(provider),
         Icon: GitHubIcon,
+      };
+    case "forgejo":
+      return {
+        providerName: provider?.name || presentation.providerName,
+        terminology: getChangeRequestTerminology(provider),
+        Icon: ForgejoIcon,
       };
     case "gitlab":
       return {
@@ -66,7 +73,7 @@ export function getSourceControlPresentation(
       return {
         providerName: provider?.name || presentation.providerName,
         terminology: getChangeRequestTerminology(provider),
-        Icon: GitPullRequestIcon,
+        Icon: PullRequestGlyph.pullRequest,
       };
   }
 }
