@@ -47,7 +47,7 @@ describe("ThreadArchiveBlockedError", () => {
       environmentId: "environment-1",
       threadId: "thread-1",
     });
-    expect(error.message).toBe("Cannot archive a thread while a turn is pending or running.");
+    expect(error.message).toBe("Cannot archive while the provider is active.");
   });
 });
 
