@@ -4,12 +4,12 @@ import * as Option from "effect/Option";
 import { SourceControlProviderError, type ChangeRequest } from "@t3tools/contracts";
 
 import * as GiteaCli from "./GiteaCli.ts";
-import * as SourceControlProvider from "./SourceControlProvider.ts";
+import * as SourceControlProvider from "@t3tools/source-control-core/server/SourceControlProvider";
 import {
   combinedAuthOutput,
   type SourceControlUnknownRemoteRefinementInput,
-} from "./SourceControlProviderDiscovery.ts";
-import * as SourceControlProviderDiscovery from "./SourceControlProviderDiscovery.ts";
+} from "@t3tools/source-control-core/server/discovery";
+import * as SourceControlProviderDiscovery from "@t3tools/source-control-core/server/discovery";
 
 function providerError(
   operation: string,

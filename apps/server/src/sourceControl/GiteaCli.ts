@@ -15,7 +15,7 @@ import {
 import { normalizeGitRemoteUrl } from "@t3tools/shared/git";
 
 import * as GiteaPullRequests from "./giteaPullRequests.ts";
-import type * as SourceControlProvider from "./SourceControlProvider.ts";
+import type * as SourceControlProvider from "@t3tools/source-control-core/server/SourceControlProvider";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;

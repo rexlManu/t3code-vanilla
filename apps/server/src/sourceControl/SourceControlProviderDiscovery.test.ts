@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as Option from "effect/Option";
 
-import { firstNonEmptyLine } from "./SourceControlProviderDiscovery.ts";
+import { firstNonEmptyLine } from "@t3tools/source-control-core/server/discovery";
 
 describe("firstNonEmptyLine", () => {
   it("strips terminal control sequences from CLI output", () => {
