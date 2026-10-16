@@ -1,7 +1,11 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import { SourceControlProviderError, type ChangeRequest } from "@t3tools/contracts";
+import {
+  SourceControlProviderKind,
+  SourceControlProviderError,
+  type ChangeRequest,
+} from "@t3tools/contracts";
 
 import * as GiteaCli from "./GiteaCli.ts";
 import * as SourceControlProvider from "@t3tools/source-control-core/server/SourceControlProvider";
@@ -17,7 +21,7 @@ function providerError(
   cause: GiteaCli.GiteaCliError,
 ): SourceControlProviderError {
   return new SourceControlProviderError({
-    provider: "gitea",
+    provider: SourceControlProviderKind.make("gitea"),
     operation,
     cwd,
     detail: cause.detail,
@@ -27,7 +31,7 @@ function providerError(
 
 function toChangeRequest(summary: GiteaCli.GiteaPullRequestSummary): ChangeRequest {
   return {
-    provider: "gitea",
+    provider: SourceControlProviderKind.make("gitea"),
     number: summary.number,
     title: summary.title,
     url: summary.url,
@@ -132,7 +136,7 @@ function refineUnknownGiteaRemote(input: SourceControlUnknownRemoteRefinementInp
   }
 
   return {
-    kind: "gitea" as const,
+    kind: SourceControlProviderKind.make("gitea"),
     name: "Gitea Self-Hosted",
     baseUrl: input.context.provider.baseUrl,
   };
@@ -140,7 +144,7 @@ function refineUnknownGiteaRemote(input: SourceControlUnknownRemoteRefinementInp
 
 export const discovery = {
   type: "cli",
-  kind: "gitea",
+  kind: SourceControlProviderKind.make("gitea"),
   label: "Gitea",
   executable: "tea",
   versionArgs: ["--version"],
@@ -155,7 +159,7 @@ export const make = Effect.fn("makeGiteaSourceControlProvider")(function* () {
   const gitea = yield* GiteaCli.GiteaCli;
 
   return SourceControlProvider.SourceControlProvider.of({
-    kind: "gitea",
+    kind: SourceControlProviderKind.make("gitea"),
     listChangeRequests: (input) =>
       gitea
         .listPullRequests({

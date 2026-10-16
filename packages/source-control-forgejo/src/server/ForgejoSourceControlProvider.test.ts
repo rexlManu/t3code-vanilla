@@ -1,13 +1,13 @@
+import { SourceControlProviderKind } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
-import type * as Context from "effect/Context";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
-import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import { VcsProcessSpawnError } from "@t3tools/contracts";
 import { firstNonEmptyLine } from "@t3tools/source-control-core/server/discovery";
@@ -20,38 +20,44 @@ import * as ForgejoSourceControlProvider from "./ForgejoSourceControlProvider.ts
 const processOutput = TestSourceControlHost.processOutput;
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
+
+const requestJson = (request: HttpClientRequest.HttpClientRequest): unknown => {
+  assert.strictEqual(request.body._tag, "Uint8Array");
+  return request.body._tag === "Uint8Array"
+    ? decodeJson(new TextDecoder().decode(request.body.body))
+    : undefined;
+};
 const encodeJsonEffect = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 it.effect("submits a Forgejo review without sending its summary in the preliminary GET", () => {
   const methods: string[] = [];
-  const fetchReview = async (
-    ...[input, init]: Parameters<Context.Service.Shape<typeof FetchHttpClient.Fetch>>
-  ) => {
-    const request = new Request(input instanceof Request ? input.url : String(input), {
-      ...(init?.method === undefined ? {} : { method: init.method }),
-      ...(init?.headers === undefined ? {} : { headers: init.headers }),
-      ...(init?.body === undefined ? {} : { body: init.body }),
-    });
+  const reviewClient = HttpClient.make((request) => {
     methods.push(request.method);
     if (request.method === "GET") {
       assert.strictEqual(request.url, "https://forgejo.test/api/v1/repos/maria/project/pulls/42");
-      return new Response(
-        encodeJson({
-          number: 42,
-          title: "Review target",
-          body: "",
-          html_url: "https://forgejo.test/maria/project/pulls/42",
-          user: { login: "maria" },
-          state: "open",
-          merged: false,
-          head: { ref: "feature", sha: "head", repo: null },
-          base: { ref: "main", sha: "base", repo: null },
-          created_at: "2026-09-13T00:00:00Z",
-          updated_at: "2026-09-13T00:00:00Z",
-          closed_at: null,
-          merged_at: null,
-          labels: [],
-        }),
+      return Effect.succeed(
+        HttpClientResponse.fromWeb(
+          request,
+          new Response(
+            encodeJson({
+              number: 42,
+              title: "Review target",
+              body: "",
+              html_url: "https://forgejo.test/maria/project/pulls/42",
+              user: { login: "maria" },
+              state: "open",
+              merged: false,
+              head: { ref: "feature", sha: "head", repo: null },
+              base: { ref: "main", sha: "base", repo: null },
+              created_at: "2026-09-13T00:00:00Z",
+              updated_at: "2026-09-13T00:00:00Z",
+              closed_at: null,
+              merged_at: null,
+              labels: [],
+            }),
+          ),
+        ),
       );
     }
     assert.strictEqual(request.method, "POST");
@@ -59,14 +65,16 @@ it.effect("submits a Forgejo review without sending its summary in the prelimina
       request.url,
       "https://forgejo.test/api/v1/repos/maria/project/pulls/42/reviews",
     );
-    assert.deepStrictEqual(JSON.parse(await request.text()), {
+    assert.deepStrictEqual(requestJson(request), {
       event: "COMMENT",
       body: "Review summary",
       commit_id: "head",
       comments: [],
     });
-    return new Response('{"id":1}', { status: 200 });
-  };
+    return Effect.succeed(
+      HttpClientResponse.fromWeb(request, new Response('{"id":1}', { status: 200 })),
+    );
+  });
   return Effect.gen(function* () {
     const cli = yield* ForgejoCli.make;
     const provider = yield* ForgejoPullRequestProvider.make.pipe(
@@ -83,11 +91,7 @@ it.effect("submits a Forgejo review without sending its summary in the prelimina
     });
     assert.deepStrictEqual(methods, ["GET", "POST"]);
   }).pipe(
-    Effect.provideService(
-      FetchHttpClient.Fetch,
-      Object.assign(fetchReview, { preconnect: () => undefined }),
-    ),
-    Effect.provide(FetchHttpClient.layer),
+    Effect.provideService(HttpClient.HttpClient, reviewClient),
     Effect.provideService(
       FileSystem.FileSystem,
       FileSystem.makeNoop({
@@ -204,6 +208,7 @@ it.effect.each([
       const summary = yield* readSummary(input);
       const detail = yield* provider.getChangeRequest(input);
       assert.strictEqual(list.items.length, 1);
+      assert.strictEqual(detail.headSha, "head");
       for (const result of [list.items[0]!, summary, detail]) {
         assert.strictEqual(result.mergeability, mergeability);
         assert.strictEqual(result.isDraft, isDraft);
@@ -239,6 +244,67 @@ it.effect.each([
       ),
     );
   },
+);
+
+it.effect("gives Forgejo identities the browser URL of the login that serves them", () =>
+  Effect.gen(function* () {
+    const provider = yield* ForgejoSourceControlProvider.make;
+    const refine = provider.refineRepositoryIdentity;
+    assert.isDefined(refine);
+    const identity = (remoteUrl: string, provider?: string) => ({
+      canonicalKey: "forge.test/team/repo",
+      locator: { source: "git-remote" as const, remoteName: "origin", remoteUrl },
+      rootPath: "/repo",
+      ...(provider === undefined ? {} : { provider }),
+    });
+    const served = (baseUrl: string) => () =>
+      Effect.succeed({
+        provider: {
+          kind: SourceControlProviderKind.make("forgejo"),
+          name: "Forgejo / Gitea",
+          baseUrl,
+        },
+        remoteName: "origin",
+        remoteUrl: "",
+      });
+
+    assert.deepStrictEqual(
+      yield* refine!({
+        identity: identity("http://forge.test:3000/git/team/repo.git"),
+        resolveContext: served("http://forge.test:3000/git/"),
+      }),
+      {
+        ...identity("http://forge.test:3000/git/team/repo.git"),
+        provider: SourceControlProviderKind.make("forgejo"),
+        webUrl: "http://forge.test:3000/git/team/repo",
+      },
+    );
+    assert.strictEqual(
+      (yield* refine!({
+        identity: identity("ssh://git@ssh.forge.test/team/repo.git"),
+        resolveContext: served("http://forge.test:3000/git"),
+      })).webUrl,
+      "http://forge.test:3000/git/team/repo",
+    );
+    const github = identity("https://github.com/team/repo.git", "github");
+    assert.strictEqual(
+      yield* refine!({ identity: github, resolveContext: () => Effect.die("not asked") }),
+      github,
+    );
+    const unserved = identity("http://forge.test:3000/team/repo.git");
+    assert.strictEqual(
+      yield* refine!({ identity: unserved, resolveContext: () => Effect.succeed(null) }),
+      unserved,
+    );
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        Layer.succeed(FileSystem.FileSystem, FileSystem.makeNoop({})),
+        TestSourceControlHost.layer(),
+        Layer.mock(ForgejoCli.ForgejoCli)({}),
+      ),
+    ),
+  ),
 );
 
 it.effect("loads Forgejo pull request references from files and commits views", () =>
@@ -493,7 +559,7 @@ it.effect("discovers Forgejo accounts and retains the server port", () =>
       cwd: "/repo",
       context: {
         provider: {
-          kind: "unknown",
+          kind: SourceControlProviderKind.make("unknown"),
           name: "git.forgejo.local",
           baseUrl: "https://git.forgejo.local",
         },
@@ -513,7 +579,7 @@ it.effect("discovers Forgejo accounts and retains the server port", () =>
       ),
     });
     assert.deepStrictEqual(refined, {
-      kind: "forgejo",
+      kind: SourceControlProviderKind.make("forgejo"),
       name: "Forgejo / Gitea",
       baseUrl: "http://forgejo.local:3000",
     });
@@ -558,7 +624,11 @@ it.effect("does not choose a default Forgejo login across ambiguous SSH server p
     const refined = ForgejoSourceControlProvider.discovery.refineUnknownRemote({
       cwd: "/repo",
       context: {
-        provider: { kind: "unknown", name: "Forgejo", baseUrl: "https://forgejo.local" },
+        provider: {
+          kind: SourceControlProviderKind.make("unknown"),
+          name: "Forgejo",
+          baseUrl: "https://forgejo.local",
+        },
         remoteName: "origin",
         remoteUrl: "git@forgejo.local:maria/project.git",
         requestedHost: "forgejo.local:4000",
@@ -668,7 +738,11 @@ it.effect("routes mounted Forgejo repositories without repeating the mount in AP
         cwd: "/repo",
         repository: "forgejo/maria/project",
         context: {
-          provider: { kind: "forgejo", name: "Forgejo", baseUrl: "https://code.test/forgejo" },
+          provider: {
+            kind: SourceControlProviderKind.make("forgejo"),
+            name: "Forgejo",
+            baseUrl: "https://code.test/forgejo",
+          },
           remoteName: "origin",
           remoteUrl: "https://code.test/forgejo/maria/project.git",
         },
@@ -680,7 +754,11 @@ it.effect("routes mounted Forgejo repositories without repeating the mount in AP
       cwd: "/repo",
       repository: "forgejo/project",
       context: {
-        provider: { kind: "forgejo", name: "Forgejo", baseUrl: "https://code.test/forgejo" },
+        provider: {
+          kind: SourceControlProviderKind.make("forgejo"),
+          name: "Forgejo",
+          baseUrl: "https://code.test/forgejo",
+        },
         remoteName: "origin",
         remoteUrl: "ssh://git@code.test/forgejo/project.git",
       },
@@ -763,7 +841,7 @@ it.effect("prefers fj for HTTP and ported SSH aliases on root servers", () => {
         repository: "maria/project",
         context: {
           provider: {
-            kind: "forgejo",
+            kind: SourceControlProviderKind.make("forgejo"),
             name: "Forgejo",
             baseUrl: "http://forgejo.local:3000",
           },
@@ -837,11 +915,7 @@ it.effect("prefers fj for HTTP and ported SSH aliases on root servers", () => {
         }
         assert.strictEqual(request.method, "POST");
         assert.strictEqual(request.headers.authorization, "token test-token");
-        assert.strictEqual(request.body._tag, "Uint8Array");
-        if (request.body._tag === "Uint8Array")
-          assert.deepStrictEqual(JSON.parse(new TextDecoder().decode(request.body.body)), {
-            body: "verified through fj",
-          });
+        assert.deepStrictEqual(requestJson(request), { body: "verified through fj" });
         return Effect.succeed(
           HttpClientResponse.fromWeb(request, new Response('{"id":99}', { status: 201 })),
         );

@@ -1,3 +1,4 @@
+import { SourceControlProviderKind } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -38,7 +39,7 @@ it("refines unknown Gitea remotes when Tea is authenticated to the matching host
     cwd: "/repo",
     context: {
       provider: {
-        kind: "unknown",
+        kind: SourceControlProviderKind.make("unknown"),
         name: "git.manu.moe",
         baseUrl: "https://git.manu.moe",
       },
@@ -53,7 +54,7 @@ it("refines unknown Gitea remotes when Tea is authenticated to the matching host
   });
 
   assert.deepStrictEqual(provider, {
-    kind: "gitea",
+    kind: SourceControlProviderKind.make("gitea"),
     name: "Gitea Self-Hosted",
     baseUrl: "https://git.manu.moe",
   });
@@ -64,7 +65,7 @@ it("refines unknown Gitea remotes with mixed-case provider hosts", () => {
     cwd: "/repo",
     context: {
       provider: {
-        kind: "unknown",
+        kind: SourceControlProviderKind.make("unknown"),
         name: "Git.Manu.Moe",
         baseUrl: "https://Git.Manu.Moe",
       },
@@ -79,7 +80,7 @@ it("refines unknown Gitea remotes with mixed-case provider hosts", () => {
   });
 
   assert.deepStrictEqual(provider, {
-    kind: "gitea",
+    kind: SourceControlProviderKind.make("gitea"),
     name: "Gitea Self-Hosted",
     baseUrl: "https://Git.Manu.Moe",
   });
@@ -90,7 +91,7 @@ it("refines unknown Gitea remotes when remote uses a non-default SSH port", () =
     cwd: "/repo",
     context: {
       provider: {
-        kind: "unknown",
+        kind: SourceControlProviderKind.make("unknown"),
         name: "git.it-lampe.de:2222",
         baseUrl: "https://git.it-lampe.de:2222",
       },
@@ -111,7 +112,7 @@ it("refines unknown Gitea remotes when remote uses a non-default SSH port", () =
   });
 
   assert.deepStrictEqual(provider, {
-    kind: "gitea",
+    kind: SourceControlProviderKind.make("gitea"),
     name: "Gitea Self-Hosted",
     baseUrl: "https://git.it-lampe.de:2222",
   });
@@ -122,7 +123,7 @@ it("refines unknown Gitea remotes when Tea uses a distinct SSH host", () => {
     cwd: "/repo",
     context: {
       provider: {
-        kind: "unknown",
+        kind: SourceControlProviderKind.make("unknown"),
         name: "ssh.git.example.com",
         baseUrl: "https://ssh.git.example.com",
       },
@@ -143,7 +144,7 @@ it("refines unknown Gitea remotes when Tea uses a distinct SSH host", () => {
   });
 
   assert.deepStrictEqual(provider, {
-    kind: "gitea",
+    kind: SourceControlProviderKind.make("gitea"),
     name: "Gitea Self-Hosted",
     baseUrl: "https://ssh.git.example.com",
   });
@@ -154,7 +155,7 @@ it("does not refine unknown Gitea remotes when Tea is not authenticated to the h
     cwd: "/repo",
     context: {
       provider: {
-        kind: "unknown",
+        kind: SourceControlProviderKind.make("unknown"),
         name: "git.example.com",
         baseUrl: "https://git.example.com",
       },
@@ -176,7 +177,7 @@ it("refines unknown Gitea remotes with multiple Tea login entries", () => {
     cwd: "/repo",
     context: {
       provider: {
-        kind: "unknown",
+        kind: SourceControlProviderKind.make("unknown"),
         name: "git.example.com",
         baseUrl: "https://git.example.com",
       },
@@ -198,7 +199,7 @@ it("refines unknown Gitea remotes with multiple Tea login entries", () => {
   });
 
   assert.deepStrictEqual(provider, {
-    kind: "gitea",
+    kind: SourceControlProviderKind.make("gitea"),
     name: "Gitea Self-Hosted",
     baseUrl: "https://git.example.com",
   });
@@ -227,7 +228,7 @@ it.effect("maps Gitea PR summaries into provider-neutral change requests", () =>
     });
 
     assert.deepStrictEqual(changeRequest, {
-      provider: "gitea",
+      provider: SourceControlProviderKind.make("gitea"),
       number: 42,
       title: "Add Gitea provider",
       url: "https://gitea.com/pingdotgg/t3code/pulls/42",

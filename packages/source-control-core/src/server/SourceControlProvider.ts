@@ -1,6 +1,8 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import type * as Option from "effect/Option";
 import type {
+  RepositoryIdentity,
   ChangeRequest,
   ChangeRequestState,
   SourceControlProviderError,
@@ -25,7 +27,6 @@ export interface SourceControlProviderContext {
   readonly provider: SourceControlProviderInfo;
   readonly remoteName: string;
   readonly remoteUrl: string;
-  /** An explicit web authority can disambiguate Forgejo logins sharing an SSH alias. */
   readonly requestedHost?: string;
 }
 
@@ -37,11 +38,6 @@ export interface SourceControlRefSelector {
 
 const MAX_ERROR_TRANSPORT_VALUE_LENGTH = 256;
 
-/**
- * Sanitizes user-provided source-control identifiers before attaching them to
- * contract errors. This is intentionally narrower than request validation: it
- * only strips URL secrets and bounds diagnostic values sent over transport.
- */
 export function transportSafeSourceControlErrorValue(value: string): string {
   let printable = "";
   for (const character of value) {
@@ -58,9 +54,7 @@ export function transportSafeSourceControlErrorValue(value: string): string {
     url.search = "";
     url.hash = "";
     safe = url.toString();
-  } catch {
-    // Plain repository and change-request identifiers are not URLs.
-  }
+  } catch {}
 
   return safe.slice(0, MAX_ERROR_TRANSPORT_VALUE_LENGTH);
 }
@@ -92,11 +86,48 @@ export function sourceControlRefFromInput(input: {
   return input.source ?? parseSourceControlOwnerRef(input.headSelector);
 }
 
+export function repositoryPathFromRemoteUrl(url: string | null): string | null {
+  const trimmed = url?.trim() ?? "";
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  const match =
+    /^(?:[^@/\s]+@[^:/\s]+:|(?:ssh|https?|git):\/\/[^/]+\/)((?:[^/\s]+\/)+[^/\s]+?)(?:\.git)?\/?$/iu.exec(
+      trimmed,
+    );
+  const path = match?.[1]?.trim() ?? "";
+  return path.length > 0 ? path : null;
+}
+
 export class SourceControlProvider extends Context.Service<
   SourceControlProvider,
   {
     readonly kind: SourceControlProviderKind;
-    /** Optional capability for issue and change-request subjects. */
+    /**
+     * The caller checks the owner against what comes back, so a host that cannot search
+     * `owner:branch` can drop those selectors without losing anything.
+     */
+    readonly headBranchProbe?: (input: {
+      readonly headSelectors: ReadonlyArray<string>;
+      readonly state: "open" | "all";
+    }) => { readonly headSelectors: ReadonlyArray<string>; readonly limit: number };
+    readonly readChangeRequestTemplate?: (input: {
+      readonly cwd: string;
+      readonly treeish: string;
+    }) => Effect.Effect<Option.Option<string>>;
+    /**
+     * The repository's `owner/name` from a remote URL, for a host whose remote paths can carry
+     * more than that (Forgejo's HTTP installation mount). Absent means the whole path.
+     */
+    readonly repositoryNameFromRemoteUrl?: (url: string) => string | null;
+    readonly refineRepositoryIdentity?: (input: {
+      readonly identity: RepositoryIdentity;
+      readonly resolveContext: (input: {
+        readonly cwd: string;
+        readonly context: SourceControlProviderContext;
+      }) => Effect.Effect<SourceControlProviderContext | null, SourceControlProviderError>;
+    }) => Effect.Effect<RepositoryIdentity, SourceControlProviderError>;
     readonly resolveLink?: ResolveSourceControlLink;
     readonly listChangeRequests: (input: {
       readonly cwd: string;
