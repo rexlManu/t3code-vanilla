@@ -1,4 +1,3 @@
-import * as GiteaCli from "./GiteaCli.ts";
 import { SourceControlProviderKind } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -47,7 +46,6 @@ const layerSourceControlProviderRegistryTest = (input: {
         }).pipe(Layer.provide(NodeServices.layer)),
         Layer.mock(AzureDevOpsCli.AzureDevOpsCli)({}),
         Layer.mock(AzureDevOpsPullRequestCli.AzureDevOpsPullRequestCli)({}),
-        Layer.mock(GiteaCli.GiteaCli)({}),
         Layer.mock(BitbucketApi.BitbucketApi)(input.bitbucket),
         Layer.mock(BitbucketPullRequestApi.BitbucketPullRequestApi)({}),
         ServerSettings.ServerSettingsService.layerTest(),
@@ -199,12 +197,6 @@ it.effect("reports implemented tools separately from locally available executabl
           account: Option.none(),
         },
         {
-          kind: SourceControlProviderKind.make("gitea"),
-          status: "missing",
-          auth: "unknown",
-          account: Option.none(),
-        },
-        {
           kind: SourceControlProviderKind.make("azure-devops"),
           status: "missing",
           auth: "unknown",
@@ -266,14 +258,6 @@ it.effect("probes provider authentication without exposing token details", () =>
         return Effect.succeed(
           processOutput(`gitlab.com
 Logged in to gitlab.com as gitlab-user
-`),
-        );
-      }
-      if (input.command === "tea" && input.args.join(" ") === "login list") {
-        return Effect.succeed(
-          processOutput(`
-│ NAME  │ URL                       │ SSH HOST                  │ USER       │ DEFAULT │
-│ gitea │ https://gitea.example.com │ ssh.gitea.example.com     │ gitea-user │ true    │
 `),
         );
       }
@@ -361,12 +345,6 @@ Logged in to gitlab.com as gitlab-user
           kind: SourceControlProviderKind.make("gitlab"),
           auth: "authenticated",
           account: Option.some("gitlab-user"),
-          detail: Option.none(),
-        },
-        {
-          kind: SourceControlProviderKind.make("gitea"),
-          auth: "authenticated",
-          account: Option.some("gitea-user"),
           detail: Option.none(),
         },
         {

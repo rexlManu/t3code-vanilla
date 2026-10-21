@@ -1,4 +1,3 @@
-import { SourceControlProviderKind } from "@t3tools/contracts";
 import * as AzureDevOpsCli from "@t3tools/source-control-azure-devops/server/AzureDevOpsCli";
 import * as AzureDevOpsPullRequestCli from "@t3tools/source-control-azure-devops/server/AzureDevOpsPullRequestCli";
 import * as AzureDevOpsDriver from "@t3tools/source-control-azure-devops/server/driver";
@@ -16,10 +15,6 @@ import * as GitHubDriver from "@t3tools/source-control-github/server/driver";
 import * as GitLabCli from "@t3tools/source-control-gitlab/server/GitLabCli";
 import * as GitLabPullRequestCli from "@t3tools/source-control-gitlab/server/GitLabPullRequestCli";
 import * as GitLabDriver from "@t3tools/source-control-gitlab/server/driver";
-import * as GiteaCli from "./GiteaCli.ts";
-import * as GiteaSourceControlProvider from "./GiteaSourceControlProvider.ts";
-import { defineSourceControlDriver } from "@t3tools/source-control-core/server/driver";
-import * as Effect from "effect/Effect";
 import type { SourceControlDriver } from "@t3tools/source-control-core/server/driver";
 import * as Layer from "effect/Layer";
 
@@ -28,16 +23,6 @@ import * as ServerSourceControlHost from "./ServerSourceControlHost.ts";
 const drivers = [
   GitHubDriver.driver,
   GitLabDriver.driver,
-  defineSourceControlDriver({
-    kind: SourceControlProviderKind.make("gitea"),
-    make: GiteaSourceControlProvider.make().pipe(
-      Effect.map((sourceControl) => ({
-        sourceControl,
-        discovery: GiteaSourceControlProvider.discovery,
-        pullRequests: null,
-      })),
-    ),
-  }),
   AzureDevOpsDriver.driver,
   BitbucketDriver.driver,
   ForgejoDriver.driver,
@@ -58,7 +43,6 @@ export const layer = Layer.mergeAll(
   AzureDevOpsPullRequestCli.layer.pipe(Layer.provideMerge(AzureDevOpsCli.layer)),
   BitbucketPullRequestApi.layer.pipe(Layer.provideMerge(BitbucketApi.layer)),
   ForgejoCli.layer,
-  GiteaCli.layer,
   GitCafeApi.layer.pipe(Layer.provideMerge(GitCafeCredentials.layer)),
   GitLabPullRequestCli.layer.pipe(Layer.provideMerge(GitLabCli.layer)),
 ).pipe(Layer.provideMerge(ServerSourceControlHost.layer));

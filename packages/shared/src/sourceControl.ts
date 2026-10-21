@@ -9,7 +9,6 @@ export interface ChangeRequestPresentation {
     | "azure-devops"
     | "bitbucket"
     | "gitcafe"
-    | "gitea"
     | "change-request";
   readonly providerName: string;
   readonly shortName: string;
@@ -45,17 +44,6 @@ const GITLAB_CHANGE_REQUEST_PRESENTATION: ChangeRequestPresentation = {
   providerLongName: "GitLab merge request",
   checkoutCommandExample: "glab mr checkout 123",
   urlExample: "https://gitlab.com/group/project/-/merge_requests/42",
-};
-
-const GITEA_CHANGE_REQUEST_PRESENTATION: ChangeRequestPresentation = {
-  icon: "gitea",
-  providerName: "Gitea",
-  shortName: "PR",
-  longName: "pull request",
-  pluralLongName: "pull requests",
-  providerLongName: "Gitea pull request",
-  checkoutCommandExample: "tea pr checkout 123",
-  urlExample: "https://gitea.com/owner/repo/pulls/42",
 };
 
 const FORGEJO_CHANGE_REQUEST_PRESENTATION: ChangeRequestPresentation = {
@@ -120,8 +108,6 @@ export function resolveChangeRequestPresentation(
       return GITHUB_CHANGE_REQUEST_PRESENTATION;
     case "gitlab":
       return GITLAB_CHANGE_REQUEST_PRESENTATION;
-    case "gitea":
-      return GITEA_CHANGE_REQUEST_PRESENTATION;
     case "forgejo":
       return FORGEJO_CHANGE_REQUEST_PRESENTATION;
     case "azure-devops":
@@ -202,10 +188,6 @@ function isGitLabHost(host: string): boolean {
   return host === "gitlab.com" || hasDnsLabel(host, "gitlab");
 }
 
-function isGiteaHost(host: string): boolean {
-  return host === "gitea.com" || hasDnsLabel(host, "gitea");
-}
-
 function isAzureDevOpsHost(host: string): boolean {
   // `ssh.dev.azure.com` is the default Azure DevOps SSH clone host
   // (git@ssh.dev.azure.com:v3/org/project/repo), so match any `*.dev.azure.com`
@@ -243,7 +225,11 @@ export function detectSourceControlProviderFromRemoteUrl(
     };
   }
 
-  if (hostname === "codeberg.org" || hasDnsLabel(hostname, "forgejo")) {
+  if (
+    hostname === "codeberg.org" ||
+    hasDnsLabel(hostname, "forgejo") ||
+    hasDnsLabel(hostname, "gitea")
+  ) {
     return {
       kind: SourceControlProviderKind.make("forgejo"),
       name: "Forgejo",
@@ -266,16 +252,6 @@ export function detectSourceControlProviderFromRemoteUrl(
       kind: SourceControlProviderKind.make("gitlab"),
       name: hostname === "gitlab.com" ? "GitLab" : "GitLab Self-Hosted",
       baseUrl: toBaseUrl(host),
-    };
-  }
-
-  if (isGiteaHost(hostname)) {
-    return {
-      kind: SourceControlProviderKind.make("gitea"),
-      name: hostname === "gitea.com" ? "Gitea" : "Gitea Self-Hosted",
-      baseUrl: /^https?:/iu.test(remoteUrl.trim())
-        ? new URL(remoteUrl.trim()).origin
-        : toBaseUrl(host),
     };
   }
 

@@ -22,10 +22,6 @@ describe("source control presentation", () => {
       shortLabel: "PR",
       singular: "pull request",
     });
-    expect(getChangeRequestTerminologyForKind(SourceControlProviderKind.make("gitea"))).toEqual({
-      shortLabel: "PR",
-      singular: "pull request",
-    });
     expect(
       getChangeRequestTerminologyForKind(SourceControlProviderKind.make("azure-devops")),
     ).toEqual({
@@ -67,19 +63,13 @@ describe("detectSourceControlProviderFromRemoteUrl", () => {
     expect(
       detectSourceControlProviderFromRemoteUrl("https://dev.azure.com/org/project/_git/repo")?.kind,
     ).toBe("azure-devops");
-    expect(detectSourceControlProviderFromRemoteUrl("git@gitea.com:owner/repo.git")?.kind).toBe(
-      "gitea",
-    );
-    expect(
-      detectSourceControlProviderFromRemoteUrl("https://codeberg.org/owner/repo.git")?.kind,
-    ).toBe("forgejo");
     expect(
       detectSourceControlProviderFromRemoteUrl("git@bitbucket.org:workspace/repo.git")?.kind,
     ).toBe("bitbucket");
   });
 
-  it("detects Forgejo hosts while preserving HTTP origins", () => {
-    for (const host of ["codeberg.org", "forgejo.example.test"]) {
+  it("detects Forgejo and Gitea hosts while preserving HTTP origins", () => {
+    for (const host of ["codeberg.org", "forgejo.example.test", "gitea.example.test"]) {
       expect(detectSourceControlProviderFromRemoteUrl(`http://${host}:3000/team/repo.git`)).toEqual(
         {
           kind: "forgejo",
@@ -91,16 +81,6 @@ describe("detectSourceControlProviderFromRemoteUrl", () => {
     expect(getChangeRequestTerminologyForKind(SourceControlProviderKind.make("forgejo"))).toEqual({
       shortLabel: "PR",
       singular: "pull request",
-    });
-  });
-
-  it("keeps Gitea hosts on the Gitea provider while preserving HTTP origins", () => {
-    expect(
-      detectSourceControlProviderFromRemoteUrl("http://gitea.example.test:3000/team/repo.git"),
-    ).toEqual({
-      kind: "gitea",
-      name: "Gitea Self-Hosted",
-      baseUrl: "http://gitea.example.test:3000",
     });
   });
 

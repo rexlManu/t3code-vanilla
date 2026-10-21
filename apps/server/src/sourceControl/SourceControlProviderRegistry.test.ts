@@ -1,4 +1,3 @@
-import * as GiteaCli from "./GiteaCli.ts";
 import { SourceControlProviderKind } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -132,7 +131,6 @@ function makeRegistry(input: {
         ),
         Layer.mock(AzureDevOpsCli.AzureDevOpsCli)({}),
         Layer.mock(AzureDevOpsPullRequestCli.AzureDevOpsPullRequestCli)({}),
-        Layer.mock(GiteaCli.GiteaCli)({}),
         Layer.mock(BitbucketApi.BitbucketApi)({}),
         Layer.mock(BitbucketPullRequestApi.BitbucketPullRequestApi)({}),
         input.settings
@@ -257,18 +255,6 @@ it.effect("routes GitLab remotes to the GitLab provider", () =>
     const provider = yield* registry.resolve({ cwd: "/repo" });
 
     assert.strictEqual(provider.kind, "gitlab");
-  }),
-);
-
-it.effect("routes Gitea remotes to the Gitea provider", () =>
-  Effect.gen(function* () {
-    const registry = yield* makeRegistry({
-      remotes: [{ name: "origin", url: "git@gitea.com:group/project.git" }],
-    });
-
-    const provider = yield* registry.resolve({ cwd: "/repo" });
-
-    assert.strictEqual(provider.kind, "gitea");
   }),
 );
 
@@ -586,7 +572,6 @@ it.effect("asks once for every checkout of a server no integration claims", () =
     assert.sameMembers(once, [
       "credential git.example.internal",
       "glab auth status --hostname Git.Example.Internal",
-      "tea login list",
       "fj",
       "tea",
     ]);
@@ -613,7 +598,7 @@ it.effect("asks again after a check that could not answer", () =>
     });
     yield* resolveUnknown(registry, "a");
     yield* resolveUnknown(registry, "b");
-    assert.strictEqual(asks, 4);
+    assert.strictEqual(asks, 2);
   }),
 );
 
