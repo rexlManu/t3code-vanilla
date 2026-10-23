@@ -3,7 +3,6 @@ import { MarkdownFindContext, findRevealRef } from "./chat/markdownFindContext";
 import {
   buildFileLinkParentSuffixByPath,
   fileLinkLabel,
-  resolvePathLinkTarget,
   splitFilePathPosition,
 } from "@t3tools/shared/fileLinks";
 import {
@@ -233,6 +232,7 @@ import { isPreviewAvailableFor } from "../browser/previewRuntime";
 import {
   isBrowserPreviewFile,
   openFileInPreview,
+  openFileInSystemBrowser,
   openUrlInPreview,
   BrowserPreviewUnavailableError,
   BrowserSettingsReadError,
@@ -1240,6 +1240,7 @@ interface MarkdownFileLinkProps {
   resolveCopyPaths: () => Promise<ReturnType<typeof markdownFileCopyPaths>>;
   openInEditorMenuLabel: string;
   onOpenInBrowser?: (() => Promise<AtomCommandResult<unknown, unknown>>) | undefined;
+  onOpenInSystemBrowser?: (() => Promise<AtomCommandResult<unknown, unknown>>) | undefined;
   onOpenMedia?: (() => void) | undefined;
   onReveal?: (() => Promise<AtomCommandResult<unknown, unknown>>) | undefined;
   revealLabel?: string | undefined;
@@ -1977,6 +1978,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   onOpenInPanel,
   openInEditorMenuLabel,
   onOpenInBrowser,
+  onOpenInSystemBrowser,
   onOpenMedia,
   onReveal,
   revealLabel,
@@ -2032,13 +2034,13 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
     handleOpenInEditor();
   };
 
-  const handleOpenInBrowser = () => {
-    if (!onOpenInBrowser) {
+  const handleOpenInBrowser = (open: MarkdownFileLinkProps["onOpenInBrowser"]) => {
+    if (!open) {
       return;
     }
     void (async () => {
       try {
-        const result = await onOpenInBrowser();
+        const result = await open();
         if (result._tag === "Success" || isAtomCommandInterrupted(result)) {
           return;
         }
@@ -2167,6 +2169,9 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
           ...(onOpenInBrowser
             ? ([{ id: "open-in-browser", label: "Open in integrated browser" }] as const)
             : []),
+          ...(onOpenInSystemBrowser
+            ? ([{ id: "open-in-system-browser", label: "Open in system browser" }] as const)
+            : []),
           ...(onReveal && revealLabel ? ([{ id: "reveal", label: revealLabel }] as const) : []),
           ...copyItems.map(({ id, label }) => ({ id, label })),
         ] as const,
@@ -2182,7 +2187,11 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
         return;
       }
       if (clicked === "open-in-browser") {
-        handleOpenInBrowser();
+        handleOpenInBrowser(onOpenInBrowser);
+        return;
+      }
+      if (clicked === "open-in-system-browser") {
+        handleOpenInBrowser(onOpenInSystemBrowser);
         return;
       }
       if (clicked === "reveal") {
@@ -2253,7 +2262,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
                   return;
                 }
                 if (useBrowserPrimaryAction) {
-                  handleOpenInBrowser();
+                  handleOpenInBrowser(onOpenInBrowser);
                   return;
                 }
                 handleOpenInFilePreview();
@@ -2438,6 +2447,7 @@ function useChatMarkdownState({
   const environmentId = threadRef?.environmentId ?? explicitEnvironmentId ?? null;
   const canOperateHost = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
   const canOperatePreview = useEnvironmentScope(environmentId, AuthPreviewOperateScope);
+  const canReadFiles = useEnvironmentScope(environmentId, AuthFilesystemReadScope);
   const remoteOpen = useRemoteOpenResolution(environmentId);
   const canUseShellActions =
     canOperateHost &&
@@ -2675,6 +2685,24 @@ function useChatMarkdownState({
       openPreview,
     });
   };
+  const openMarkdownFileInSystemBrowser = async (filePath: string) => {
+    if (!threadRef || !readEnvironmentScope(threadRef.environmentId, AuthFilesystemReadScope)) {
+      throw new Error("File access is unavailable for this connection.");
+    }
+    const connection = readPreparedConnection(threadRef.environmentId);
+    const api = readLocalApi();
+    if (!connection || !api) {
+      throw new Error("Reconnect to this environment and try again.");
+    }
+    return openFileInSystemBrowser({
+      threadRef,
+      filePath,
+      workspaceRoot: cwd,
+      httpBaseUrl: connection.httpBaseUrl,
+      createAssetUrl,
+      openExternal: (url) => api.shell.openExternal(url),
+    });
+  };
   const findWorkspaceFileMatch = async (fileLinkMeta: MarkdownFileLinkMeta) => {
     const workspaceRelativePath = fileLinkMeta.workspaceLookupPath;
     if (
@@ -2799,6 +2827,11 @@ function useChatMarkdownState({
             : undefined
         }
         revealLabel={revealInFileManagerLabel}
+        onOpenInSystemBrowser={
+          threadRef && canReadFiles && isBrowserPreviewFile(fileLinkMeta.filePath)
+            ? async () => openMarkdownFileInSystemBrowser((await resolveHostPath()).absolutePath)
+            : undefined
+        }
         onOpenInBrowser={
           threadRef &&
           canOperatePreview &&
