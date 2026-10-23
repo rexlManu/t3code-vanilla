@@ -65,7 +65,7 @@ function normalizeDeviceScaleFactor(value) {
   return Number.isFinite(parsed) && parsed > 0 ? normalized : null;
 }
 
-export function resolveElectronLaunchArgs(env = process.env) {
+function resolveElectronLaunchArgs(env = process.env) {
   if (hostPlatform !== "linux") {
     return [];
   }

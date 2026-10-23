@@ -99,7 +99,7 @@ const ANSI_CONTROL_SEQUENCE_PATTERN = new RegExp(
   "gu",
 );
 
-export function sanitizeCliLine(text: string): string {
+function sanitizeCliLine(text: string): string {
   return text.replace(ANSI_CONTROL_SEQUENCE_PATTERN, "").replace(/\s+/gu, " ").trim();
 }
 
