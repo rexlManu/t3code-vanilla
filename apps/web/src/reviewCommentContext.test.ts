@@ -42,7 +42,7 @@ describe("review comment context parsing", () => {
         " three",
         " four",
       ].join("\n"),
-      "review-comment-test",
+      { cacheKeyPrefix: "review-comment-test" },
     )[0]!.files;
 
     const comment = buildDiffReviewComment({
@@ -88,7 +88,7 @@ describe("review comment context parsing", () => {
         " ",
         " four",
       ].join("\n"),
-      "review-comment-trailing-blank",
+      { cacheKeyPrefix: "review-comment-trailing-blank" },
     )[0]!.files[0]!;
     const comment = (end: number) =>
       buildDiffReviewComment({
@@ -119,7 +119,7 @@ describe("review comment context parsing", () => {
         "+TWO",
         " three",
       ].join("\n"),
-      "restore-review-comment-range",
+      { cacheKeyPrefix: "restore-review-comment-range" },
     )[0]!.files[0]!;
     const comment = buildDiffReviewComment({
       id: "comment-6",
@@ -172,7 +172,7 @@ describe("review comment context parsing", () => {
         " line 27",
         " line 28",
       ].join("\n"),
-      "review-position-hunks",
+      { cacheKeyPrefix: "review-position-hunks" },
     )[0]!.files[0]!;
     // The Code tab tries the original partial patch before the hydrated viewer file.
     expect(resolveDiffReviewPosition(fileDiff, 25, "additions")).toBeNull();
@@ -230,7 +230,7 @@ describe("review comment context parsing", () => {
         "+twenty-one",
         " twenty-two",
       ].join("\n"),
-      "review-anchor-range",
+      { cacheKeyPrefix: "review-anchor-range" },
     )[0]!.files[0]!;
     const upward = { start: 3, side: "additions", end: 1, endSide: "additions" } as const;
 
